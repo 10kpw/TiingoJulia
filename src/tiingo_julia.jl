@@ -1,6 +1,5 @@
 module tiingo_julia
 
-<<<<<<< HEAD
 using DataFrames
 using JSON3
 using HTTP
@@ -23,8 +22,3 @@ end
 
 
 end # end of module
-=======
-# Write your package code here.
-
-end
->>>>>>> fc1e21b (initial commit)
