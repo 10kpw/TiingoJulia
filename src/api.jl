@@ -1,7 +1,7 @@
 using HTTP, JSON3, DataFrames, Dates
 
 function download_from_tiingo(ticker, start_date, end_date)
-    api_key = ENV["TIINGO_TOKEN"]
+    api_key = ENV["TIINGO_API_KEY"]
 
     url = "https://api.tiingo.com/tiingo/daily/$ticker/prices"
 
