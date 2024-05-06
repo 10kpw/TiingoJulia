@@ -1,6 +1,7 @@
-using tiingo_julia
 using Test
 
-@testset "tiingo_julia.jl" begin
-    # Write your tests here.
-end
+# Include each test script
+include("test_api.jl")
+include("test_db.jl")
+
+println("All tests completed.")

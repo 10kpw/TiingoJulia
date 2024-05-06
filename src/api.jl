@@ -1,32 +1,24 @@
 using HTTP, JSON3, DataFrames, Dates
 
-function download_from_tiingo(ticker, start_date, end_date)
-    api_key = ENV["TIINGO_API_KEY"]
+const BASE_URL = "https://api.tiingo.com/tiingo/daily"
 
-    url = "https://api.tiingo.com/tiingo/daily/$ticker/prices"
+function download_from_tiingo(ticker::String, start_date::String="1970-01-01", end_date::String=Dates.today())
+    api_key = get(ENV, "TIINGO_API_KEY", nothing)
+    @assert api_key !== nothing
 
-    if start_date isnothing
-        start_date = "1970-01-01"
-    end
-    if end_date isnothing
-        end_date = Dates.today()
-    end
-
+    url = "$BASE_URL/$ticker/prices"
     query_params = Dict(
         "startDate" => start_date,
         "endDate" => end_date,
         "token" => api_key
     )
+
     response = HTTP.get(url, queryparams=query_params)
 
-    if response.status == 200
-        data = JSON3.parse(response.body)
-        if isempty(data)
-            throw("No data receieved for ticker $ticker")
-        else
-            return DataFrame(data)
-        end
-    else
-        error("API request failed")
-    end
+    @assert response.status == 200 
+
+    data = JSON3.parse(String(response.body))
+    @assert !isempty(data) 
+
+    return DataFrame(data)
 end
