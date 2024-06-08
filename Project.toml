@@ -1,7 +1,7 @@
 name = "tiingo_julia"
 uuid = "1316d3df-ea13-4eef-8810-037e2b70086f"
 authors = ["Kojiroh <kojiroh.homma@gmail.com> and contributors"]
-version = "1.0.0-DEV"
+version = "0.1.0"
 
 [deps]
 DBInterface = "a10d1c49-ce27-4219-8d33-6db1a4562965"
@@ -12,13 +12,14 @@ DotEnv = "4dc1fcf4-5e3b-5448-94ab-0c38ec0385c1"
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 LibPQ = "194296ae-ab2e-5f79-8cd4-7183a0a5a0d1"
-Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 
-[compat]
-julia = "1"
+# [compat]
+# julia = ">=1.9"
 
 [extras]
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 
 [targets]
-test = ["Test"]
+test = ["Test", "Logging", "Revise"]
