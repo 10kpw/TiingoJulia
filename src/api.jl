@@ -1,10 +1,11 @@
 const BASE_URL = "https://api.tiingo.com/tiingo/daily"
 
-function download_from_tiingo(
+function fetch_ticker_data(
     ticker::String;
     start_date::String="1970-01-01", 
     end_date::String=Dates.today()
 )::DataFrame
+
     cfg = DotEnv.config()
     api_key = cfg["TIINGO_API_KEY"]
     @assert api_key !== nothing
