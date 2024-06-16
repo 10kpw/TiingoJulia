@@ -1,23 +1,26 @@
 name = "tiingo_julia"
 uuid = "1316d3df-ea13-4eef-8810-037e2b70086f"
 authors = ["Kojiroh <kojiroh.homma@gmail.com> and contributors"]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DBInterface = "a10d1c49-ce27-4219-8d33-6db1a4562965"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 DotEnv = "4dc1fcf4-5e3b-5448-94ab-0c38ec0385c1"
+DuckDB = "d2f5444f-75bc-4fdf-ac35-56f514c445e1"
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 LibPQ = "194296ae-ab2e-5f79-8cd4-7183a0a5a0d1"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 LoggingExtras = "e6f89c97-d47a-5376-807f-9c37f3926c36"
+ZipFile = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
 
 [extras]
-Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+Mocking = "78c3b35d-d492-501b-9361-3d52fe80e533"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-Mocking = "78c3b35d-d492-501b-9361-3d52fe80e533"
 
 [targets]
 test = ["Test", "Logging", "Revise", "Mocking", "LoggingExtras", "LibPQ", "Dates", "DataFrames", "DotEnv", "HTTP", "JSON3"]
