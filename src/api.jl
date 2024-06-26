@@ -2,8 +2,8 @@ const BASE_URL = "https://api.tiingo.com/tiingo/daily"
 
 function fetch_ticker_data(
     ticker::String;
-    start_date::String=nothing,
-    end_date::String=nothing
+    startDate::String=nothing,
+    endDate::String=nothing
 )::DataFrame
     # load tiingo api key
     cfg = DotEnv.config()

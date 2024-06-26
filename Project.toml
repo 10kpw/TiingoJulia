@@ -1,7 +1,7 @@
 name = "tiingo_julia"
 uuid = "1316d3df-ea13-4eef-8810-037e2b70086f"
 authors = ["Kojiroh <kojiroh.homma@gmail.com> and contributors"]
-version = "0.1.1"
+version = "0.1.2"
 
 [deps]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
@@ -23,4 +23,4 @@ Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Logging", "Revise", "Mocking", "LoggingExtras", "LibPQ", "Dates", "DataFrames", "DotEnv", "HTTP", "JSON3"]
+test = ["Test", "Logging", "Revise", "Mocking"]
