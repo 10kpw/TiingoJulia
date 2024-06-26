@@ -5,6 +5,11 @@ using JSON3
 using HTTP
 using LibPQ
 using DotEnv
+using CSV
+using DuckDB
+using DBInterface
+using ZipFile
+using Dates
 using Logging
 using LoggingExtras
 

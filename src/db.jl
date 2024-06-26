@@ -3,13 +3,28 @@ console_logger = LoggingExtras.TeeLogger(LoggingExtras.NullLogger(), ConsoleLogg
 # Set the global logger to the console logger
 global_logger(console_logger)
 
-function store_data(df::DataFrame, table_name::String="")
+function store_data(df::DataFrames.DataFrame, table_name::String="")
     conn = LibPQ.Connection("postgresql://user:password@host:port/dbname")
     LibPQ.load!(df, table_name, conn)
 end
 
 
-function upsert_stock_data(conn, data::DataFrame, ticker::String)
+function update_us_tickers(
+    conn::DBInterface.Connection, 
+    csv_file::String="supported_tickers.csv"
+)
+    DBInterface.execute(conn, """
+    CREATE OR REPLACE TABLE us_tickers AS
+    SELECT * FROM read_csv("$csv_file")
+    """)
+end
+
+
+function upsert_stock_data(
+    conn::DBInterface.Connection, 
+    data::DataFrames.DataFrame, 
+    ticker::String
+)
     for row in eachrow(data)
         # UPSERT statement (insert or update on conflict)
         upsert_stmt = """
@@ -38,14 +53,21 @@ function upsert_stock_data(conn, data::DataFrame, ticker::String)
 end
 
 
-function add_historical_data(conn, ticker::String)
+function add_historical_data(
+    conn::DBInterface.Connection,
+    ticker::String
+)
     data = fetch_ticker_data(ticker)
     upsert_stock_data(conn, data, ticker)
 end
 
 
-function update_historical(conn, tickers::DataFrame)
-end_date = maximum(skipmissing(tickers.endDate))
+function update_historical(
+    conn::DBInterface.Connection,
+    tickers::DataFrames.DataFrame=nothing,
+)
+
+    end_date = maximum(skipmissing(tickers.endDate))
     not_in_hist_data = []
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
@@ -66,8 +88,7 @@ end_date = maximum(skipmissing(tickers.endDate))
         end
 
         if Date(start_date) <= end_date 
-            @info("$i : $symbol : $start_date ~ $end_date")
-            ticker_data = fetch_ticker_data(symbol, startDate=start_date, endDate=end_date)
+            ticker_data = fetch_ticker_data(symbol; startDate=start_date, endDate=end_date)
             upsert_stock_data(conn, ticker_data, symbol)
         else
             @info("$i : $symbol : you have the latest data")
@@ -82,7 +103,11 @@ end_date = maximum(skipmissing(tickers.endDate))
 end
 
 
-function update_splitted_ticker(conn, tickers::DataFrame)
+function update_splitted_ticker(
+    conn::DBInterface.Connection,
+    tickers::DataFrame
+)
+
     end_date = maximum(skipmissing(tickers.endDate))
     splitted_tickers = DBInterface.execute(conn,
     """
@@ -97,7 +122,33 @@ function update_splitted_ticker(conn, tickers::DataFrame)
         tickers_all = get_tickers_all()
         start_date = tickers_all[tickers_all.ticker .== ticker, :startDate][1]
         @info("$i : $ticker : $start_date ~ $end_date")
-        ticker_data = fetch_ticker_data(ticker, startDate=start_date, endDate=end_date)
+        ticker_data = fetch_ticker_data(ticker, start_date=start_date, end_date=end_date)
         upsert_stock_data(conn, ticker_data, ticker)
     end
+end
+
+
+function get_tickers_etf(
+    conn::DBInterface.Connection
+)::DataFrame
+
+    return DBInterface.execute(conn, """
+    SELECT ticker, exchange, assetType, startDate, endDate
+    FROM us_tickers_filtered
+    WHERE assetType = 'ETF'
+    ORDER BY ticker;
+    """) |> DataFrame 
+end
+
+
+function get_tickers_stock(
+    conn::DBInterface.Connection
+)::DataFrame
+
+    return DBInterface.execute(conn, """
+    SELECT ticker, exchange, assetType, startDate, endDate
+    FROM us_tickers_filtered
+    WHERE assetType = 'Stock'
+    ORDER BY ticker;
+    """) |> DataFrame 
 end
