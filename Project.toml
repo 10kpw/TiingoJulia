@@ -17,6 +17,9 @@ Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 LoggingExtras = "e6f89c97-d47a-5376-807f-9c37f3926c36"
 ZipFile = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
 
+[compat]
+LibPQ = "1"
+
 [extras]
 Mocking = "78c3b35d-d492-501b-9361-3d52fe80e533"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
