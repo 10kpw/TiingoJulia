@@ -24,3 +24,6 @@ docs/site/
 # environment.
 Manifest.toml
 .env
+
+# dot clean
+._*
