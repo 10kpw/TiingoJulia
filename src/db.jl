@@ -1,6 +1,4 @@
 # Database related functions
-using LibPQ
-using Tables
 
 """
     connect_db(path::String)
@@ -8,7 +6,49 @@ using Tables
 Connect to the DuckDB database.
 """
 function connect_db(path::String="tiingo_historical_data.duckdb")::DBInterface.Connection
-    DBInterface.connect(DuckDB.DB, path)
+    conn = DBInterface.connect(DuckDB.DB, path)
+    
+    # Create tables if they don't exist
+    DBInterface.execute(conn, """
+    CREATE TABLE IF NOT EXISTS us_tickers (
+        ticker VARCHAR,
+        exchange VARCHAR,
+        assetType VARCHAR,
+        priceCurrency VARCHAR,
+        startDate DATE,
+        endDate DATE
+    )
+    """)
+
+    DBInterface.execute(conn, """
+    CREATE TABLE IF NOT EXISTS us_tickers_filtered AS
+    SELECT * FROM us_tickers
+    WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
+    AND assetType IN ('Stock', 'ETF')
+    AND ticker NOT LIKE '%/%'
+    """)
+
+    DBInterface.execute(conn, """
+    CREATE TABLE IF NOT EXISTS historical_data (
+        ticker VARCHAR,
+        date DATE,
+        close FLOAT,
+        high FLOAT,
+        low FLOAT,
+        open FLOAT,
+        volume BIGINT,
+        adjClose FLOAT,
+        adjHigh FLOAT,
+        adjLow FLOAT,
+        adjOpen FLOAT,
+        adjVolume BIGINT,
+        divCash FLOAT,
+        splitFactor FLOAT,
+        UNIQUE (ticker, date)
+    )
+    """)
+
+    return conn
 end
 
 """
@@ -83,7 +123,7 @@ function add_historical_data(
     conn::DBInterface.Connection,
     ticker::String
 )
-    data = fetch_ticker_data(ticker)
+    data = fetch_ticker_data(ticker, api_key=get_api_key())
     upsert_stock_data(conn, data, ticker)
     @info "Added historical data for $ticker"
 end
@@ -118,7 +158,7 @@ function update_historical(
         end
 
         if Date(start_date) <= end_date 
-            ticker_data = fetch_ticker_data(symbol; startDate=start_date, endDate=end_date)
+            ticker_data = fetch_ticker_data(symbol; startDate=start_date, endDate=end_date, api_key=get_api_key())
             upsert_stock_data(conn, ticker_data, symbol)
         else
             @info "$i : $symbol has the latest data"
@@ -141,6 +181,8 @@ function update_splitted_ticker(
     conn::DBInterface.Connection,
     tickers::DataFrame
 )
+    # tickers DataFrame should contain at least ticker name and endDate
+
     end_date = maximum(skipmissing(tickers.endDate))
     splitted_tickers = DBInterface.execute(conn,"""
     SELECT ticker, splitFactor, date
@@ -149,12 +191,17 @@ function update_splitted_ticker(
     AND splitFactor != 1.0
     """) |> DataFrame
 
+    tickers_all = DBInterface.execute(conn,"""
+    SELECT ticker, startDate
+    FROM us_tickers_filtered
+    """) |> DataFrame
+
     for (i, row) in enumerate(eachrow(splitted_tickers))
-        ticker = row.ticker
-        start_date = tickers[tickers.ticker .== ticker, :startDate][1]
+        symbol = row.ticker
+        start_date = tickers_all[tickers_all.ticker .== symbol, :startDate][1]
         @info "$i: Updating split ticker $ticker from $start_date to $end_date"
-        ticker_data = fetch_ticker_data(ticker; startDate=start_date, endDate=end_date)
-        upsert_stock_data(conn, ticker_data, ticker)
+        ticker_data = fetch_ticker_data(ticker; startDate=start_date, endDate=end_date, api_key=get_api_key())
+        upsert_stock_data(conn, ticker_data, symbol)
     end
     @info "Updated split tickers"
 end
