@@ -111,7 +111,6 @@ function upsert_stock_data(
             @error "Error upserting stock data for $ticker: $e"
         end
     end
-    @info "Upserted stock data for $ticker"
 end
 
 """
@@ -158,6 +157,7 @@ function update_historical(
         end
 
         if Date(start_date) <= end_date 
+            @info "$i : $symbol : $start_date ~ $end_date"
             ticker_data = fetch_ticker_data(symbol; startDate=start_date, endDate=end_date, api_key=get_api_key())
             upsert_stock_data(conn, ticker_data, symbol)
         else
