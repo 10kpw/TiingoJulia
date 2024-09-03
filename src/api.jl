@@ -3,6 +3,8 @@ using JSON3
 using DataFrames
 using Dates
 using DotEnv
+using DuckDB 
+using DBInterface
 
 const BASE_URL = "https://api.tiingo.com/tiingo/daily"
 
