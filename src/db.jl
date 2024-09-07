@@ -199,8 +199,8 @@ function update_splitted_ticker(
     for (i, row) in enumerate(eachrow(splitted_tickers))
         symbol = row.ticker
         start_date = tickers_all[tickers_all.ticker .== symbol, :startDate][1]
-        @info "$i: Updating split ticker $ticker from $start_date to $end_date"
-        ticker_data = fetch_ticker_data(ticker; startDate=start_date, endDate=end_date, api_key=get_api_key())
+        @info "$i: Updating split ticker $symbol from $start_date to $end_date"
+        ticker_data = fetch_ticker_data(symbol; startDate=start_date, endDate=end_date, api_key=get_api_key())
         upsert_stock_data(conn, ticker_data, symbol)
     end
     @info "Updated split tickers"
@@ -277,28 +277,86 @@ end
 
 Export a table from DuckDB to PostgreSQL.
 """
-function export_to_postgres(duckdb_conn::DBInterface.Connection, pg_conn::LibPQ.Connection, table_name::String)
-    # Fetch data from DuckDB
-    data = DBInterface.execute(duckdb_conn, "SELECT * FROM $table_name") |> DataFrame
-    
-    # Create table in PostgreSQL if it doesn't exist
-    create_table_sql = DBInterface.execute(duckdb_conn, "SHOW CREATE TABLE $table_name") |> DataFrame
-    create_table_sql = replace(create_table_sql[1, 1], "CREATE TABLE" => "CREATE TABLE IF NOT EXISTS")
-    
-    # Convert DuckDB types to PostgreSQL types
-    create_table_sql = replace(create_table_sql, "BOOLEAN" => "BOOLEAN")
-    create_table_sql = replace(create_table_sql, "INTEGER" => "INTEGER")
-    create_table_sql = replace(create_table_sql, "BIGINT" => "BIGINT")
-    create_table_sql = replace(create_table_sql, "DOUBLE" => "DOUBLE PRECISION")
-    create_table_sql = replace(create_table_sql, "VARCHAR" => "TEXT")
-    create_table_sql = replace(create_table_sql, "DATE" => "DATE")
-    
-    LibPQ.execute(pg_conn, create_table_sql)
-    
-    # Copy data to PostgreSQL
-    LibPQ.load!(Tables.rowtable(data), table_name, pg_conn)
-    
-    @info "Exported $table_name from DuckDB to PostgreSQL"
+function export_to_postgres(
+    duckdb_conn::DBInterface.Connection,
+    pg_conn::LibPQ.Connection,
+    tables::Vector{String};
+    pg_host::String="127.0.0.1",
+    pg_user::String="otwn",
+    pg_dbname::String="tiingo"
+)
+    try
+        for table_name in tables
+            # Export DuckDB table to parquet
+            parquet_file = "$(table_name).parquet"
+            DBInterface.execute(duckdb_conn, """COPY $table_name TO '$parquet_file';""")
+            
+            # Get table schema from DuckDB
+            schema_query = "DESCRIBE $table_name"
+            schema = DBInterface.execute(duckdb_conn, schema_query) |> DataFrame
+            
+            # Create table in PostgreSQL
+            create_table_query = "CREATE TABLE IF NOT EXISTS $table_name ("
+            for row in eachrow(schema)
+                column_name = row.column_name
+                data_type = row.column_type
+                # Map DuckDB types to PostgreSQL types
+                pg_type = if occursin("VARCHAR", uppercase(data_type))
+                    "VARCHAR"
+                elseif occursin("INTEGER", uppercase(data_type))
+                    "INTEGER"
+                elseif occursin("BIGINT", uppercase(data_type))
+                    "BIGINT"
+                elseif occursin("DOUBLE", uppercase(data_type))
+                    "DOUBLE PRECISION"
+                elseif occursin("BOOLEAN", uppercase(data_type))
+                    "BOOLEAN"
+                elseif occursin("DATE", uppercase(data_type))
+                    "DATE"
+                elseif occursin("TIMESTAMP", uppercase(data_type))
+                    "TIMESTAMP"
+                else
+                    data_type  # Use the same type if no specific mapping
+                end
+                create_table_query *= "\"$column_name\" $pg_type, "
+            end
+            create_table_query = chop(create_table_query, tail=2) * ")"
+            
+            # Add UNIQUE constraint for historical_data table
+            if table_name == "historical_data"
+                create_table_query = create_table_query[1:end-1] * ", UNIQUE (ticker, date))"
+            end
+            
+            # Execute CREATE TABLE in PostgreSQL
+            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
+            LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
+            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
+            LibPQ.execute(pg_conn, create_table_query)
+            
+            # Set up PostgreSQL connection in DuckDB
+            DBInterface.execute(duckdb_conn, "INSTALL postgres;")
+            DBInterface.execute(duckdb_conn, "LOAD postgres;")
+            DBInterface.execute(duckdb_conn, """
+                ATTACH 'dbname=$pg_dbname user=$pg_user host=$pg_host' AS postgres_db (TYPE postgres);
+            """)
+            
+            # Copy data from parquet to PostgreSQL
+            DBInterface.execute(duckdb_conn, """
+                COPY postgres_db.$table_name FROM '$parquet_file';
+            """)
+            
+            # Detach PostgreSQL connection
+            DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
+            
+            # Remove parquet file
+            rm(parquet_file)
+            
+            @info "Successfully exported $table_name from DuckDB to PostgreSQL"
+        end
+    catch e
+        @error "Error exporting tables to PostgreSQL" exception=(e, catch_backtrace())
+        rethrow(e)
+    end
 end
 
 """
@@ -306,16 +364,16 @@ end
 
 Export all relevant tables from DuckDB to PostgreSQL.
 """
-function export_all_to_postgres(duckdb_path::String, pg_connection_string::String)
+function export_all_to_postgres(duckdb_path::String, pg_connection::String)
     duckdb_conn = connect_db(duckdb_path)
-    pg_conn = connect_postgres(pg_connection_string)
+    pg_conn = connect_postgres(pg_connection)
     
     try
-        # Export us_tickers_filtered
-        export_to_postgres(duckdb_conn, pg_conn, "us_tickers_filtered")
-        
         # Export historical_data
         export_to_postgres(duckdb_conn, pg_conn, "historical_data")
+
+        # Export us_tickers_filtered
+        export_to_postgres(duckdb_conn, pg_conn, "us_tickers_filtered")
         
         @info "All tables exported successfully"
     catch e

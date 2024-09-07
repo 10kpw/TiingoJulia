@@ -97,11 +97,23 @@ function download_latest_tickers(
 
     # Connect to the duckdb database
     conn = DBInterface.connect(DuckDB.DB, duckdb_path)
-    DBInterface.execute(conn, """
-    CREATE OR REPLACE TABLE us_tickers AS
-    SELECT * FROM read_csv("supported_tickers.csv")
-    """);
-    DBInterface.close(conn)
+
+    try
+        DBInterface.execute(conn, """
+        CREATE OR REPLACE TABLE us_tickers AS
+        SELECT * FROM read_csv("supported_tickers.csv")
+        """);
+        DBInterface.close(conn) 
+        
+        @info "Downloaded and processed the latest tickers from Tiingo"
+    catch e
+        # If an error occurs, rollback the transaction
+        DBInterface.execute(conn, "ROLLBACK;")
+        rethrow(e)
+    finally
+        # Always close the connection
+        DBInterface.close(conn)
+    end
 
     # Delete the unzipped csv file
     # if isfile("supported_tickers.csv")
@@ -109,9 +121,7 @@ function download_latest_tickers(
     #     println("File 'supported_tickers.csv' has been deleted.")
     # else
     #     println("File 'supported_tickers.csv' does not exist.")
-    # end    
-    
-    @info "Downloaded and processed the latest tickers from Tiingo"
+    # end   
 end
 
 """
@@ -129,10 +139,11 @@ function generate_filtered_tickers(;
     DBInterface.execute(conn, """
     CREATE OR REPLACE TABLE 'us_tickers_filtered' AS
     SELECT * FROM us_tickers
-    WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-    AND endDate = (SELECT max(endDate) FROM us_tickers)
-    AND assetType IN ('Stock', 'ETF')
-    AND ticker NOT LIKE '%/%'
+     WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
+       AND endDate >= CURRENT_DATE - INTERVAL 7 DAY
+       AND endDate <= CURRENT_DATE
+       AND assetType IN ('Stock', 'ETF')
+       AND ticker NOT LIKE '%/%'
     """);
 
     # Close the connection
