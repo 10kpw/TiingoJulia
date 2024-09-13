@@ -6,8 +6,6 @@ using DotEnv
 using DuckDB 
 using DBInterface
 
-const BASE_URL = "https://api.tiingo.com/tiingo/daily"
-
 """
     get_api_key()
 
@@ -39,32 +37,28 @@ Fetch historical data for a given ticker from Tiingo API.
 """
 function fetch_ticker_data(
     ticker::String;
-    startDate::Union{Date,String,Nothing}=nothing,
-    endDate::Union{Date,String,Nothing}=nothing,
-    api_key::String=get_api_key()
+    start_date::Union{Date,String,Nothing}=nothing,
+    end_date::Union{Date,String,Nothing}=nothing,
+    api_key::String=get_api_key(),
+    base_url::String="https://api.tiingo.com/tiingo/daily"
 )::DataFrame
     headers = Dict("Authorization" => "Token $api_key")
 
-    if isnothing(endDate)
-        meta_url = "$BASE_URL/$ticker"
+    if isnothing(end_date)
+        meta_url = "$base_url/$ticker"
         meta_resp = HTTP.get(meta_url, headers=headers)
         @assert meta_resp.status == 200 "Failed to fetch metadata for $ticker"
         meta_data = JSON3.read(String(meta_resp.body))
-        endDate = meta_data.endDate
-        startDate = isnothing(startDate) ? meta_data.startDate : startDate
+        end_date = meta_data.endDate
+        start_date = isnothing(startDate) ? meta_data.startDate : startDate
     end
 
-    start_date = Dates.format(Date(startDate), "yyyy-mm-dd")
-    end_date = Dates.format(Date(endDate), "yyyy-mm-dd")
+    start_date = Dates.format(Date(start_date), "yyyy-mm-dd")
+    end_date = Dates.format(Date(end_date), "yyyy-mm-dd")
 
-    url = "$BASE_URL/$ticker/prices"
-    query_params = Dict(
-        "startDate" => start_date,
-        "endDate" => end_date,
-        "token" => api_key
-    )
-
-    response = HTTP.get(url, query=query_params, headers=headers)
+    url = "$base_url/$ticker/prices"
+    query = Dict("startDate" => start_date, "endDate" => end_date)
+    response = HTTP.get(url, query=query, headers=headers)
     @assert response.status == 200 "Failed to fetch data for $ticker"
 
     data = JSON3.read(String(response.body), Vector{Dict})
@@ -140,8 +134,7 @@ function generate_filtered_tickers(;
     CREATE OR REPLACE TABLE 'us_tickers_filtered' AS
     SELECT * FROM us_tickers
      WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-       AND endDate >= CURRENT_DATE - INTERVAL 7 DAY
-       AND endDate <= CURRENT_DATE
+       AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock')
        AND assetType IN ('Stock', 'ETF')
        AND ticker NOT LIKE '%/%'
     """);
