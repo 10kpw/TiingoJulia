@@ -1,9 +1,9 @@
-using tiingo_julia
+using TiingoJulia
 using Test
 using DataFrames
 using DBInterface
 
-@testset "tiingo_julia" begin
+@testset "TiingoJulia" begin
     @test isa(get_api_key(), String)
     @test !isempty(get_api_key())
 
