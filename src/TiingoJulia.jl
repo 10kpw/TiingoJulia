@@ -1,4 +1,4 @@
-module tiingo_julia
+module TiingoJulia
 
 using CSV
 using DataFrames
