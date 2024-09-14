@@ -1,0 +1,11 @@
+# Don't forget to run
+#
+#     pkg> dev ..
+#
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+LiveServer = "16fef848-5104-11e9-1b77-fb7a48bbb589"
+Tiingo_Julia = "1316d3df-ea13-4eef-8810-037e2b70086f"
+
+[compat]
+Documenter = "1"

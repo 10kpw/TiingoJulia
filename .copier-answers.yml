@@ -1,0 +1,13 @@
+# Changes here will be overwritten by Copier
+AnswerStrategy: recommended
+Authors: Kojiroh <kojiroh.homma@gmail.com> and contributors
+CodeOfConductContact: kojiroh.homma@gmail.com
+Indentation: 4
+JuliaMinVersion: '1.6'
+License: MIT
+LicenseCopyrightHolders: 10kpw
+PackageName: Tiingo_Julia
+PackageOwner: 10kpw
+PackageUUID: 1316d3df-ea13-4eef-8810-037e2b70086f
+_commit: v0.10.1
+_src_path: https://github.com/abelsiqueira/BestieTemplate.jl

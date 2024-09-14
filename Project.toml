@@ -1,4 +1,4 @@
-name = "tiingo_julia"
+name = "Tiingo_Julia"
 uuid = "1316d3df-ea13-4eef-8810-037e2b70086f"
 authors = ["Kojiroh <kojiroh.homma@gmail.com> and contributors"]
 version = "0.2.0"
