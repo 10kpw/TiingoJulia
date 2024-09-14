@@ -1,10 +1,10 @@
 ```@meta
-CurrentModule = Tiingo_Julia
+CurrentModule = TiingoJulia
 ```
 
-# Tiingo_Julia
+# TiingoJulia
 
-Documentation for [Tiingo_Julia](https://github.com/10kpw/Tiingo_Julia.jl).
+Documentation for [TiingoJulia](https://github.com/10kpw/TiingoJulia.jl).
 
 ## Contributors
 

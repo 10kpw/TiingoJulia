@@ -1,5 +1,5 @@
 <!--
-Thanks for making a pull request to Tiingo_Julia.jl.
+Thanks for making a pull request to TiingoJulia.jl.
 We have added this PR template to help you help us.
 
 Make sure to read the contributing guidelines and abide by the code of conduct.
@@ -24,7 +24,7 @@ There is no related issue.
 <!-- mark true if NA -->
 <!-- leave PR as draft until all is checked -->
 
-- [ ] I am following the [contributing guidelines](https://github.com/10kpw/Tiingo_Julia.jl/blob/main/docs/src/90-contributing.md)
+- [ ] I am following the [contributing guidelines](https://github.com/10kpw/TiingoJulia.jl/blob/main/docs/src/90-contributing.md)
 
 - [ ] Tests are passing
 - [ ] Lint workflow is passing

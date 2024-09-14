@@ -1,4 +1,4 @@
-using Tiingo_Julia
+using TiingoJulia
 using Test
 
 

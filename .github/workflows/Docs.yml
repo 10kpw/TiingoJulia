@@ -43,9 +43,9 @@ jobs:
       - run: |
           julia --project=docs -e '
             using Documenter: DocMeta, doctest
-            using Tiingo_Julia
-            DocMeta.setdocmeta!(Tiingo_Julia, :DocTestSetup, :(using Tiingo_Julia); recursive=true)
-            doctest(Tiingo_Julia)'
+            using TiingoJulia
+            DocMeta.setdocmeta!(TiingoJulia, :DocTestSetup, :(using TiingoJulia); recursive=true)
+            doctest(TiingoJulia)'
       - run: julia --project=docs docs/make.jl
         env:
           JULIA_PKG_SERVER: ""
