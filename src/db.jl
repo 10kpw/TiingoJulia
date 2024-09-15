@@ -107,8 +107,8 @@ end
 Upsert stock data into the historical_data table.
 """
 function upsert_stock_data(
-    conn::DuckDBConnection, 
-    data::DataFrame, 
+    conn::DuckDBConnection,
+    data::DataFrame,
     ticker::String
 )
     upsert_stmt = """
@@ -137,7 +137,7 @@ function upsert_stock_data(
             @error "Error upserting stock data for $ticker: $e"
         end
     end
-    @info "Upserted stock data for $ticker" rows_updated=rows_updated total_rows=nrow(data)
+    # @info "Upserted stock data for $ticker" rows_updated=rows_updated total_rows=nrow(data)
 end
 
 """
@@ -166,8 +166,8 @@ Returns:
 - A tuple containing two lists: (updated_tickers, missing_tickers)
 """
 function update_historical(
-    conn::DuckDBConnection, 
-    tickers::DataFrame, 
+    conn::DuckDBConnection,
+    tickers::DataFrame,
     api_key::String = get_api_key()
 )
     end_date = maximum(skipmissing(tickers.endDate))
@@ -199,7 +199,7 @@ function update_historical(
 
             start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
 
-            if Date(start_date) <= end_date 
+            if Date(start_date) <= end_date
                 println("$i : $symbol : $start_date ~ $end_date")
                 ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
                 upsert_stock_data(conn, ticker_data, symbol)
@@ -207,7 +207,7 @@ function update_historical(
             else
                 println("$i : $symbol has the latest data")
             end
-        catch e 
+        catch e
             @error "Error processing $(row.ticker): $e"
         end
     end
@@ -221,7 +221,7 @@ function update_historical(
     end
 
     @info "Historical data update completed" updated_count=length(updated_tickers) missing_count=length(missing_tickers)
-    
+
     return (updated_tickers, missing_tickers)
 end
 
@@ -315,9 +315,9 @@ close_postgres(conn::PostgreSQLConnection) = LibPQ.close(conn)
 Export tables from DuckDB to PostgreSQL.
 """
 function export_to_postgres(
-    duckdb_conn::DuckDBConnection, 
-    pg_conn::PostgreSQLConnection, 
-    tables::Vector{String}; 
+    duckdb_conn::DuckDBConnection,
+    pg_conn::PostgreSQLConnection,
+    tables::Vector{String};
     pg_host::String="127.0.0.1", pg_user::String="otwn", pg_dbname::String="tiingo"
 )
     try
@@ -336,37 +336,37 @@ end
 Export a single table from DuckDB to PostgreSQL.
 """
 function export_table_to_postgres(
-    duckdb_conn::DuckDBConnection, 
-    pg_conn::PostgreSQLConnection, 
-    table_name::String, 
-    pg_host::String, 
-    pg_user::String, 
+    duckdb_conn::DuckDBConnection,
+    pg_conn::PostgreSQLConnection,
+    table_name::String,
+    pg_host::String,
+    pg_user::String,
     pg_dbname::String
 )
     @info "Exporting table $table_name to PostgreSQL"
     parquet_file = "$(table_name).parquet"
     DBInterface.execute(duckdb_conn, """COPY $table_name TO '$parquet_file';""")
     @info "Exported $table_name to parquet file"
-    
+
     schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name") |> DataFrame
     create_table_query = generate_create_table_query(table_name, schema)
-    
+
     LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
     LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
     LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
     LibPQ.execute(pg_conn, create_table_query)
     @info "Created table $table_name in PostgreSQL"
-    
+
     setup_postgres_connection(duckdb_conn, pg_host, pg_user, pg_dbname)
     DBInterface.execute(duckdb_conn, """
         COPY postgres_db.$table_name FROM '$parquet_file';
     """)
     DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
     @info "Copied data from parquet file to PostgreSQL table $table_name"
-    
+
     rm(parquet_file)
     @info "Removed temporary parquet file"
-    
+
     @info "Successfully exported $table_name from DuckDB to PostgreSQL"
 end
 
@@ -384,11 +384,11 @@ function generate_create_table_query(table_name::String, schema::DataFrame)
         query *= "\"$column_name\" $pg_type, "
     end
     query = chop(query, tail=2)
-    
+
     if table_name == "historical_data"
         query *= ", UNIQUE (ticker, date)"
     end
-    
+
     query *= ")"
     return query
 end
@@ -409,13 +409,13 @@ function map_duckdb_to_postgres_type(duckdb_type::String)
         "DATE" => "DATE",
         "TIMESTAMP" => "TIMESTAMP"
     )
-    
+
     for (key, value) in type_mapping
         if occursin(key, uppercase(duckdb_type))
             return value
         end
     end
-    
+
     return duckdb_type  # Use the same type if no specific mapping
 end
 
@@ -451,12 +451,12 @@ function export_all_to_postgres(duckdb_path::String, pg_connection::String)
     @info "Connected to DuckDB database: $duckdb_path"
     pg_conn = connect_postgres(pg_connection)
     @info "Connected to PostgreSQL database"
-    
+
     try
         tables_to_export = ["historical_data", "us_tickers_filtered"]
         @info "Attempting to export tables: $(join(tables_to_export, ", "))"
         export_to_postgres(duckdb_conn, pg_conn, tables_to_export)
-        
+
         @info "All tables exported successfully"
     catch e
         @error "Error during export" exception=(e, catch_backtrace())
