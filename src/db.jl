@@ -318,15 +318,39 @@ function export_to_postgres(
     duckdb_conn::DuckDBConnection,
     pg_conn::PostgreSQLConnection,
     tables::Vector{String};
-    pg_host::String="127.0.0.1", pg_user::String="otwn", pg_dbname::String="tiingo"
+    pg_host::String="127.0.0.1",
+    pg_user::String="otwn",
+    pg_dbname::String="tiingo",
+    max_retries::Int=3,
+    retry_delay::Int=5
 )
-    try
-        for table_name in tables
-            export_table_to_postgres(duckdb_conn, pg_conn, table_name, pg_host, pg_user, pg_dbname)
+    for table_name in tables
+        retries = 0
+        while retries < max_retries
+            try
+                export_table_to_postgres(duckdb_conn, pg_conn, table_name, pg_host, pg_user, pg_dbname)
+                @info "Successfully exported $table_name from DuckDB to PostgreSQL"
+                break  # Exit the retry loop if successful
+            catch e
+                retries += 1
+                @warn "Error exporting $table_name (Attempt $retries of $max_retries)" exception=(e, catch_backtrace())
+
+                if retries < max_retries
+                    @info "Retrying in $retry_delay seconds..."
+                    sleep(retry_delay)
+                else
+                    @error "Failed to export $table_name after $max_retries attempts"
+                    rethrow(e)
+                end
+            finally
+                # Clean up any temporary files that might have been created
+                parquet_file = "$(table_name).parquet"
+                if isfile(parquet_file)
+                    rm(parquet_file, force=true)
+                    @info "Removed temporary parquet file for $table_name"
+                end
+            end
         end
-    catch e
-        @error "Error exporting tables to PostgreSQL" exception=(e, catch_backtrace())
-        rethrow(e)
     end
 end
 
@@ -345,29 +369,33 @@ function export_table_to_postgres(
 )
     @info "Exporting table $table_name to PostgreSQL"
     parquet_file = "$(table_name).parquet"
-    DBInterface.execute(duckdb_conn, """COPY $table_name TO '$parquet_file';""")
-    @info "Exported $table_name to parquet file"
 
-    schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name") |> DataFrame
-    create_table_query = generate_create_table_query(table_name, schema)
+    try
+        DBInterface.execute(duckdb_conn, """COPY $table_name TO '$parquet_file';""")
+        @info "Exported $table_name to parquet file"
 
-    LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
-    LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
-    LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
-    LibPQ.execute(pg_conn, create_table_query)
-    @info "Created table $table_name in PostgreSQL"
+        schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name") |> DataFrame
+        create_table_query = generate_create_table_query(table_name, schema)
 
-    setup_postgres_connection(duckdb_conn, pg_host, pg_user, pg_dbname)
-    DBInterface.execute(duckdb_conn, """
-        COPY postgres_db.$table_name FROM '$parquet_file';
-    """)
-    DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
-    @info "Copied data from parquet file to PostgreSQL table $table_name"
+        LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
+        LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
+        LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
+        LibPQ.execute(pg_conn, create_table_query)
+        @info "Created table $table_name in PostgreSQL"
 
-    rm(parquet_file)
-    @info "Removed temporary parquet file"
-
-    @info "Successfully exported $table_name from DuckDB to PostgreSQL"
+        setup_postgres_connection(duckdb_conn, pg_host, pg_user, pg_dbname)
+        DBInterface.execute(duckdb_conn, """
+            COPY postgres_db.$table_name FROM '$parquet_file';
+        """)
+        DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
+        @info "Copied data from parquet file to PostgreSQL table $table_name"
+    finally
+        # Clean up the parquet file, even if an error occurred
+        if isfile(parquet_file)
+            rm(parquet_file)
+            @info "Removed temporary parquet file for $table_name"
+        end
+    end
 end
 
 """
@@ -432,39 +460,3 @@ function setup_postgres_connection(duckdb_conn::DuckDBConnection, pg_host::Strin
     """)
 end
 
-"""
-    export_all_to_postgres(duckdb_path::String, pg_connection::String)
-
-Export all relevant tables from DuckDB to PostgreSQL.
-
-Parameters:
-- duckdb_path: Path to the DuckDB database file
-- pg_connection: PostgreSQL connection string
-
-This function connects to both DuckDB and PostgreSQL databases, exports the
-'historical_data' and 'us_tickers_filtered' tables from DuckDB to PostgreSQL,
-and then closes both database connections.
-"""
-function export_all_to_postgres(duckdb_path::String, pg_connection::String)
-    @info "Starting export_all_to_postgres operation"
-    duckdb_conn = connect_db(duckdb_path)
-    @info "Connected to DuckDB database: $duckdb_path"
-    pg_conn = connect_postgres(pg_connection)
-    @info "Connected to PostgreSQL database"
-
-    try
-        tables_to_export = ["historical_data", "us_tickers_filtered"]
-        @info "Attempting to export tables: $(join(tables_to_export, ", "))"
-        export_to_postgres(duckdb_conn, pg_conn, tables_to_export)
-
-        @info "All tables exported successfully"
-    catch e
-        @error "Error during export" exception=(e, catch_backtrace())
-        rethrow(e)
-    finally
-        close_db(duckdb_conn)
-        @info "Closed DuckDB connection"
-        close_postgres(pg_conn)
-        @info "Closed PostgreSQL connection"
-    end
-end
