@@ -3,8 +3,11 @@ using JSON3
 using DataFrames
 using Dates
 using DotEnv
-using DuckDB 
+using DuckDB
 using DBInterface
+
+# In the TiingoJulia package source (api.jl file)
+dotenv(path = joinpath(pwd(), ".env"))
 
 """
     get_api_key()
@@ -21,12 +24,12 @@ function get_api_key()
     end
 
     api_key = get(ENV, "TIINGO_API_KEY", nothing)
-    
+
     if isnothing(api_key)
         @warn "TIINGO_API_KEY not found in ENV. Current ENV keys: $(keys(ENV))"
         error("TIINGO_API_KEY not found. Please set it in your .env file at the root of your project.")
     end
-    
+
     return api_key
 end
 
@@ -97,8 +100,8 @@ function download_latest_tickers(
         CREATE OR REPLACE TABLE us_tickers AS
         SELECT * FROM read_csv("supported_tickers.csv")
         """);
-        DBInterface.close(conn) 
-        
+        DBInterface.close(conn)
+
         @info "Downloaded and processed the latest tickers from Tiingo"
     catch e
         # If an error occurs, rollback the transaction
@@ -115,7 +118,7 @@ function download_latest_tickers(
     #     println("File 'supported_tickers.csv' has been deleted.")
     # else
     #     println("File 'supported_tickers.csv' does not exist.")
-    # end   
+    # end
 end
 
 """
