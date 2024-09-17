@@ -246,6 +246,9 @@ function update_splitted_ticker(conn::DuckDBConnection, tickers::DataFrame, api_
 
     for (i, row) in enumerate(eachrow(splitted_tickers))
         symbol = row.ticker
+        if ismissing(ticker) || ticker === nothing
+            continue  # Skip this row if ticker is missing or null
+        end
         start_date = tickers_all[tickers_all.ticker .== symbol, :startDate][1]
         @info "$i: Updating split ticker $symbol from $start_date to $end_date"
         ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
