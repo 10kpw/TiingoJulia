@@ -6,9 +6,6 @@ using DotEnv
 using DuckDB
 using DBInterface
 
-# In the TiingoJulia package source (api.jl file)
-dotenv(path = joinpath(pwd(), ".env"))
-
 """
     get_api_key()
 
