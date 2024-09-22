@@ -168,7 +168,8 @@ Returns:
 function update_historical(
     conn::DuckDBConnection,
     tickers::DataFrame,
-    api_key::String = get_api_key()
+    api_key::String = get_api_key(),
+    add_missing::Bool = true
 )
     end_date = maximum(skipmissing(tickers.endDate))
     missing_tickers = String[]
@@ -236,7 +237,7 @@ function update_splitted_ticker(
     api_key::String = get_api_key()
 )
     end_date = maximum(skipmissing(tickers.endDate))
-
+    print(first(tickers))
     splitted_tickers = DBInterface.execute(conn, """
     SELECT ticker, splitFactor, date
       FROM historical_data
@@ -244,11 +245,7 @@ function update_splitted_ticker(
        AND splitFactor <> 1.0
     """) |> DataFrame
 
-    # tickers_all = DBInterface.execute(conn, """
-    # SELECT ticker, startDate
-    # FROM us_tickers_filtered
-    # """) |> DataFrame
-
+    print(first(splitted_tickers))
     for (i, row) in enumerate(eachrow(splitted_tickers))
         symbol = row.ticker
         if ismissing(symbol) || symbol === nothing
