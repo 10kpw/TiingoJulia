@@ -176,40 +176,36 @@ function update_historical(
     updated_tickers = String[]
 
     for (i, row) in enumerate(eachrow(tickers))
-        try
-            symbol = row.ticker
-            hist_data = DBInterface.execute(conn, """
-            SELECT ticker, max(date) + INTERVAL '1 day' AS latest_date
-            FROM historical_data
-            WHERE ticker = '$symbol'
-            GROUP BY 1
-            ORDER BY 1;
-            """) |> DataFrame
+        symbol = row.ticker
+        hist_data = DBInterface.execute(conn, """
+        SELECT ticker, max(date) + INTERVAL '1 day' AS latest_date
+        FROM historical_data
+        WHERE ticker = '$symbol'
+        GROUP BY 1
+        ORDER BY 1;
+        """) |> DataFrame
 
-            if isempty(hist_data.latest_date)
-                push!(missing_tickers, symbol)
-                if add_missing
-                    @info "Adding missing ticker: $symbol"
-                    add_historical_data(conn, symbol, api_key)
-                    push!(updated_tickers, symbol)
-                else
-                    @info "Skipping missing ticker: $symbol"
-                end
-                continue
-            end
-
-            start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
-
-            if Date(start_date) <= end_date
-                println("$i : $symbol : $start_date ~ $end_date")
-                ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
-                upsert_stock_data(conn, ticker_data, symbol)
+        if isempty(hist_data.latest_date)
+            push!(missing_tickers, symbol)
+            if add_missing
+                @info "Adding missing ticker: $symbol"
+                add_historical_data(conn, symbol, api_key)
                 push!(updated_tickers, symbol)
             else
-                println("$i : $symbol has the latest data")
+                @info "Skipping missing ticker: $symbol"
             end
-        catch e
-            @error "Error processing $(row.ticker): $e"
+            continue
+        end
+
+        start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
+
+        if Date(start_date) <= end_date
+            println("$i : $symbol : $start_date ~ $end_date")
+            ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
+            upsert_stock_data(conn, ticker_data, symbol)
+            push!(updated_tickers, symbol)
+        else
+            println("$i : $symbol has the latest data")
         end
     end
 
@@ -237,7 +233,7 @@ function update_splitted_ticker(
     api_key::String = get_api_key()
 )
     end_date = maximum(skipmissing(tickers.endDate))
-    print(first(tickers))
+
     splitted_tickers = DBInterface.execute(conn, """
     SELECT ticker, splitFactor, date
       FROM historical_data
@@ -245,7 +241,6 @@ function update_splitted_ticker(
        AND splitFactor <> 1.0
     """) |> DataFrame
 
-    print(first(splitted_tickers))
     for (i, row) in enumerate(eachrow(splitted_tickers))
         symbol = row.ticker
         if ismissing(symbol) || symbol === nothing
