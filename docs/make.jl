@@ -18,4 +18,7 @@ makedocs(;
     pages = ["index.md"; numbered_pages],
 )
 
-deploydocs(; repo = "github.com/10kpw/TiingoJulia.jl")
+deploydocs(;
+    repo = "github.com/10kpw/TiingoJulia.jl",
+    devbranch = "main"
+)
