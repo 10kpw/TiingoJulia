@@ -310,7 +310,14 @@ end
 
 Connect to the PostgreSQL database.
 """
-connect_postgres(connection_string::String)::PostgreSQLConnection = LibPQ.Connection(connection_string)
+function connect_postgres(connection_string::String)::PostgreSQLConnection
+    try
+        return LibPQ.Connection(connection_string)
+    catch e
+        @error "Failed to connect to PostgreSQL" exception=(e, catch_backtrace())
+        rethrow(e)
+    end
+end
 
 """
     close_postgres(conn::PostgreSQLConnection)
@@ -462,11 +469,21 @@ end
 
 Set up a PostgreSQL connection in DuckDB.
 """
-function setup_postgres_connection(duckdb_conn::DuckDBConnection, pg_host::String, pg_user::String, pg_dbname::String)
-    DBInterface.execute(duckdb_conn, "INSTALL postgres;")
-    DBInterface.execute(duckdb_conn, "LOAD postgres;")
-    DBInterface.execute(duckdb_conn, """
-        ATTACH 'dbname=$pg_dbname user=$pg_user host=$pg_host' AS postgres_db (TYPE postgres);
-    """)
+function setup_postgres_connection(
+    duckdb_conn::DuckDBConnection,
+    pg_host::String,
+    pg_user::String,
+    pg_dbname::String
+)
+    try
+        DBInterface.execute(duckdb_conn, "INSTALL postgres;")
+        DBInterface.execute(duckdb_conn, "LOAD postgres;")
+        DBInterface.execute(duckdb_conn, """
+            ATTACH 'dbname=$pg_dbname user=$pg_user host=$pg_host' AS postgres_db (TYPE postgres);
+        """)
+        @info "Successfully set up PostgreSQL connection in DuckDB"
+    catch e
+        @error "Failed to set up PostgreSQL connection in DuckDB" exception=(e, catch_backtrace())
+        rethrow(e)
+    end
 end
-
