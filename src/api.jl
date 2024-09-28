@@ -58,7 +58,6 @@ function fetch_ticker_data(
 
     url = "$base_url/$ticker/prices"
     query = Dict("startDate" => start_date, "endDate" => end_date)
-    println(query)
     response = HTTP.get(url, query=query, headers=headers)
     @assert response.status == 200 "Failed to fetch data for $ticker"
 
@@ -79,7 +78,7 @@ function download_latest_tickers(
     zip_file_path::String = "supported_tickers.zip"
 )
     # Download the zip file
-    HTTP.download(tickers_url, zip_file_path)
+    HTTP.download(tickers_url, zip_file_path);
 
     # Unzip the file
     r = ZipFile.Reader(zip_file_path)
@@ -91,7 +90,7 @@ function download_latest_tickers(
     close(r)
 
     # Connect to the duckdb database
-    conn = DuckDB.connect(duckdb_path)
+    conn = DBInterface.connect(DuckDB.DB, duckdb_path)
 
     try
         DBInterface.execute(conn, """
@@ -128,7 +127,7 @@ function generate_filtered_tickers(;
     duckdb_path::String = "tiingo_historical_data.duckdb"
 )
     # Connect to the duckdb database
-    conn = DuckDB.connect(duckdb_path)
+    conn = DBInterface.connect(DuckDB.DB, duckdb_path)
 
     # Filter the table to only include US tickers
     DBInterface.execute(conn, """
