@@ -26,9 +26,14 @@ end
 Connect to the DuckDB database and create necessary tables if they don't exist.
 """
 function connect_db(path::String = DEFAULT_DUCKDB_PATH)::DuckDBConnection
-    conn = DBInterface.connect(DuckDB.DB, path)
-    create_tables(conn)
-    return conn
+    try
+        conn = DBInterface.connect(DuckDB.DB, path)
+        create_tables(conn)
+        return conn
+    catch e
+        @error "Failed to connect to DuckDB database" exception=(e, catch_backtrace())
+        rethrow(e)
+    end
 end
 
 """
@@ -77,7 +82,12 @@ function create_tables(conn::DuckDBConnection)
     ]
 
     for (table_name, query) in tables
-        DBInterface.execute(conn, query)
+        try
+            DBInterface.execute(conn, query)
+            @info "Created table: $table_name"
+        catch e
+            @error "Failed to create table: $table_name" exception=(e, catch_backtrace())
+        end
     end
 end
 
@@ -168,7 +178,7 @@ Returns:
 function update_historical(
     conn::DuckDBConnection,
     tickers::DataFrame,
-    api_key::String = get_api_key(),
+    api_key::String = get_api_key();
     add_missing::Bool = true
 )
     end_date = maximum(skipmissing(tickers.endDate))
