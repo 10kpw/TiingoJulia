@@ -50,7 +50,7 @@ function fetch_ticker_data(
         @assert meta_resp.status == 200 "Failed to fetch metadata for $ticker"
         meta_data = JSON3.read(String(meta_resp.body))
         end_date = meta_data.endDate
-        start_date = isnothing(startDate) ? meta_data.startDate : startDate
+        start_date = isnothing(start_date) ? meta_data.startDate : start_date
     end
 
     start_date = Dates.format(Date(start_date), "yyyy-mm-dd")
@@ -58,6 +58,7 @@ function fetch_ticker_data(
 
     url = "$base_url/$ticker/prices"
     query = Dict("startDate" => start_date, "endDate" => end_date)
+    println(query)
     response = HTTP.get(url, query=query, headers=headers)
     @assert response.status == 200 "Failed to fetch data for $ticker"
 
@@ -90,7 +91,7 @@ function download_latest_tickers(
     close(r)
 
     # Connect to the duckdb database
-    conn = DBInterface.connect(DuckDB.DB, duckdb_path)
+    conn = DuckDB.connect(duckdb_path)
 
     try
         DBInterface.execute(conn, """
@@ -127,7 +128,7 @@ function generate_filtered_tickers(;
     duckdb_path::String = "tiingo_historical_data.duckdb"
 )
     # Connect to the duckdb database
-    conn = DBInterface.connect(DuckDB.DB, duckdb_path)
+    conn = DuckDB.connect(duckdb_path)
 
     # Filter the table to only include US tickers
     DBInterface.execute(conn, """
