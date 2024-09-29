@@ -34,15 +34,6 @@ end
 const DuckDBConnection = DBInterface.Connection
 const PostgreSQLConnection = LibPQ.Connection
 
-# Connection context manager
-struct DBConnection
-    conn::Union{DuckDBConnection, PostgreSQLConnection}
-    close_func::Function
-end
-
-function Base.close(db::DBConnection)
-    db.close_func(db.conn)
-end
 # Set up logging to file
 function setup_logging()
     logger = SimpleLogger(open(LOG_FILE, "a"))
@@ -54,11 +45,11 @@ end
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
 """
-function connect_db(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DBConnection
+function connect_db(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
         conn = DBInterface.connect(DuckDB.DB, path)
         create_tables(conn)
-        return DBConnection(conn, close_db)
+        return conn
     catch e
         @error "Failed to connect to DuckDB database" exception=(e, catch_backtrace())
         throw(DatabaseConnectionError("Failed to connect to DuckDB: $e"))
@@ -132,7 +123,7 @@ close_db(conn::DuckDBConnection) = DBInterface.close(conn)
 
 Update the us_tickers table in the database from a CSV file.
 """
-function update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
+function update_us_tickers(conn::DuckDBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
     query = """
     CREATE OR REPLACE TABLE $(DBConstants.Tables.US_TICKERS) AS
     SELECT * FROM read_csv('$csv_file')
@@ -147,7 +138,7 @@ function update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DE
 end
 
 """
-    upsert_stock_data(conn::DBConnection, data::DataFrame, ticker::String)
+    upsert_stock_data(conn::DuckDBConnection, data::DataFrame, ticker::String)
 
 Upsert stock data into the historical_data table.
 """
