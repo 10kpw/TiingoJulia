@@ -369,7 +369,7 @@ function export_to_postgres(
 )
     for table_name in tables
         retry_with_exponential_backoff(max_retries, retry_delay) do
-            export_table_to_postgres(duckdb_conn.conn, pg_conn.conn, table_name, pg_host, pg_user, pg_dbname)
+            export_table_to_postgres(duckdb_conn, pg_conn, table_name, pg_host, pg_user, pg_dbname)
             @info "Successfully exported $table_name from DuckDB to PostgreSQL"
         end
     end
