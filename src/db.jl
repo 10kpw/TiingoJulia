@@ -299,11 +299,11 @@ function update_splitted_ticker(
 end
 
 """
-    get_tickers_all(conn::DBConnection)
+    get_tickers_all(conn::DBInterface.Connection)
 
 Get all tickers from the us_tickers_filtered table.
 """
-function get_tickers_all(conn::DBConnection)::DataFrame
+function get_tickers_all(conn::DBInterface.Connection)::DataFrame
     DBInterface.execute(conn, """
     SELECT ticker, exchange, assetType, startDate, endDate
     FROM us_tickers_filtered
@@ -312,11 +312,11 @@ function get_tickers_all(conn::DBConnection)::DataFrame
 end
 
 """
-    get_tickers_etf(conn::DBConnection)
+    get_tickers_etf(conn::DBInterface.Connection)
 
 Get all ETF tickers from the us_tickers_filtered table.
 """
-function get_tickers_etf(conn::DBConnection)::DataFrame
+function get_tickers_etf(conn::DBInterface.Connection)::DataFrame
     DBInterface.execute(conn, """
     SELECT ticker, exchange, assetType, startDate, endDate
     FROM us_tickers_filtered
@@ -326,11 +326,11 @@ function get_tickers_etf(conn::DBConnection)::DataFrame
 end
 
 """
-    get_tickers_stock(conn::DBConnection)
+    get_tickers_stock(conn::DBInterface.Connection)
 
 Get all stock tickers from the us_tickers_filtered table.
 """
-function get_tickers_stock(conn::DBConnection)::DataFrame
+function get_tickers_stock(conn::DBInterface.Connection)::DataFrame
     DBInterface.execute(conn, """
     SELECT ticker, exchange, assetType, startDate, endDate
     FROM us_tickers_filtered
