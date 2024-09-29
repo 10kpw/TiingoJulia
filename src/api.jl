@@ -169,6 +169,7 @@ Generate a filtered list of US tickers.
 function generate_filtered_tickers(;
     duckdb_path::String = "tiingo_historical_data.duckdb"
 )
+    conn = nothing
     try
         # Connect to the duckdb database
         conn = DBInterface.connect(DuckDB.DB, duckdb_path)
@@ -187,7 +188,9 @@ function generate_filtered_tickers(;
     catch e
         error("Error in generate_filtered_tickers: $(e)")
     finally
-        # Always close the connection
-        DBInterface.close(conn)
+        # Always close the connection if it's open
+        if conn !== nothing
+            DBInterface.close(conn)
+        end
     end
 end
