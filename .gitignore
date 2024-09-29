@@ -13,3 +13,4 @@ docs/build/
 env
 node_modules
 .env
+._*
