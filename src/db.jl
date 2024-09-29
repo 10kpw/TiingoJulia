@@ -4,16 +4,44 @@ using DuckDB
 using LibPQ
 using Dates
 using Logging
+using Base: @kwdef
 
 # Constants
-const DEFAULT_DUCKDB_PATH = "tiingo_historical_data.duckdb"
-const DEFAULT_CSV_FILE = "supported_tickers.csv"
-const LOG_FILE = "stock.log"
+module DBConstants
+    const DEFAULT_DUCKDB_PATH = "tiingo_historical_data.duckdb"
+    const DEFAULT_CSV_FILE = "supported_tickers.csv"
+    const LOG_FILE = "stock.log"
+
+    module Tables
+        const US_TICKERS = "us_tickers"
+        const US_TICKERS_FILTERED = "us_tickers_filtered"
+        const HISTORICAL_DATA = "historical_data"
+    end
+end
+
+# Custom error types
+struct DatabaseConnectionError <: Exception
+    msg::String
+end
+
+struct DatabaseQueryError <: Exception
+    msg::String
+    query::String
+end
 
 # Type aliases for clarity
 const DuckDBConnection = DBInterface.Connection
 const PostgreSQLConnection = LibPQ.Connection
 
+# Connection context manager
+struct DBConnection
+    conn::Union{DuckDBConnection, PostgreSQLConnection}
+    close_func::Function
+end
+
+function Base.close(db::DBConnection)
+    db.close_func(db.conn)
+end
 # Set up logging to file
 function setup_logging()
     logger = SimpleLogger(open(LOG_FILE, "a"))
@@ -21,18 +49,18 @@ function setup_logging()
 end
 
 """
-    connect_db(path::String = DEFAULT_DUCKDB_PATH)
+    connect_db(path::String = DBConstants.DEFAULT_DUCKDB_PATH)
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
 """
-function connect_db(path::String = DEFAULT_DUCKDB_PATH)::DuckDBConnection
+function connect_db(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DBConnection
     try
         conn = DBInterface.connect(DuckDB.DB, path)
         create_tables(conn)
-        return conn
+        return DBConnection(conn, close_db)
     catch e
         @error "Failed to connect to DuckDB database" exception=(e, catch_backtrace())
-        rethrow(e)
+        throw(DatabaseConnectionError("Failed to connect to DuckDB: $e"))
     end
 end
 
@@ -99,16 +127,22 @@ Close the DuckDB database connection.
 close_db(conn::DuckDBConnection) = DBInterface.close(conn)
 
 """
-    update_us_tickers(conn::DuckDBConnection, csv_file::String = DEFAULT_CSV_FILE)
+    update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
 
 Update the us_tickers table in the database from a CSV file.
 """
-function update_us_tickers(conn::DuckDBConnection, csv_file::String = DEFAULT_CSV_FILE)
-    DBInterface.execute(conn, """
-    CREATE OR REPLACE TABLE us_tickers AS
+function update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
+    query = """
+    CREATE OR REPLACE TABLE $(DBConstants.Tables.US_TICKERS) AS
     SELECT * FROM read_csv('$csv_file')
-    """)
-    @info "Updated us_tickers table from file: $csv_file"
+    """
+    try
+        DBInterface.execute(conn.conn, query)
+        @info "Updated us_tickers table from file: $csv_file"
+    catch e
+        @error "Failed to update us_tickers table" exception=(e, catch_backtrace())
+        throw(DatabaseQueryError("Failed to update us_tickers: $e", query))
+    end
 end
 
 """
@@ -327,13 +361,13 @@ Close the PostgreSQL database connection.
 close_postgres(conn::PostgreSQLConnection) = LibPQ.close(conn)
 
 """
-    export_to_postgres(duckdb_conn::DuckDBConnection, pg_conn::PostgreSQLConnection, tables::Vector{String}; pg_host::String="127.0.0.1", pg_user::String="otwn", pg_dbname::String="tiingo")
+    export_to_postgres(duckdb_conn::DBConnection, pg_conn::DBConnection, tables::Vector{String}; kwargs...)
 
 Export tables from DuckDB to PostgreSQL.
 """
 function export_to_postgres(
-    duckdb_conn::DuckDBConnection,
-    pg_conn::PostgreSQLConnection,
+    duckdb_conn::DBConnection,
+    pg_conn::DBConnection,
     tables::Vector{String};
     pg_host::String="127.0.0.1",
     pg_user::String="otwn",
@@ -342,31 +376,26 @@ function export_to_postgres(
     retry_delay::Int=5
 )
     for table_name in tables
-        retries = 0
-        while retries < max_retries
-            try
-                export_table_to_postgres(duckdb_conn, pg_conn, table_name, pg_host, pg_user, pg_dbname)
-                @info "Successfully exported $table_name from DuckDB to PostgreSQL"
-                break  # Exit the retry loop if successful
-            catch e
-                retries += 1
-                @warn "Error exporting $table_name (Attempt $retries of $max_retries)" exception=(e, catch_backtrace())
+        retry_with_exponential_backoff(max_retries, retry_delay) do
+            export_table_to_postgres(duckdb_conn.conn, pg_conn.conn, table_name, pg_host, pg_user, pg_dbname)
+            @info "Successfully exported $table_name from DuckDB to PostgreSQL"
+        end
+    end
+end
 
-                if retries < max_retries
-                    @info "Retrying in $retry_delay seconds..."
-                    sleep(retry_delay)
-                else
-                    @error "Failed to export $table_name after $max_retries attempts"
-                    rethrow(e)
-                end
-            finally
-                # Clean up any temporary files that might have been created
-                parquet_file = "$(table_name).parquet"
-                if isfile(parquet_file)
-                    rm(parquet_file, force=true)
-                    @info "Removed temporary parquet file for $table_name"
-                end
+# New helper function for retrying with exponential backoff
+function retry_with_exponential_backoff(f::Function, max_retries::Int, initial_delay::Int)
+    for attempt in 1:max_retries
+        try
+            return f()
+        catch e
+            if attempt == max_retries
+                @error "Failed after $max_retries attempts" exception=(e, catch_backtrace())
+                rethrow(e)
             end
+            delay = initial_delay * 2^(attempt - 1)
+            @warn "Attempt $attempt failed. Retrying in $delay seconds..." exception=(e, catch_backtrace())
+            sleep(delay)
         end
     end
 end

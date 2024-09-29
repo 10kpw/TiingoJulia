@@ -14,11 +14,12 @@ using ZipFile
 using Logging
 using LoggingExtras
 
-# Global logger configuration (if needed)
-console_logger = LoggingExtras.TeeLogger(LoggingExtras.NullLogger(), ConsoleLogger(stderr, Logging.Info))
-global_logger(console_logger)
+# Logger configuration
+const CONSOLE_LOGGER = ConsoleLogger(stderr, Logging.Info)
+const NULL_LOGGER = LoggingExtras.NullLogger()
+global_logger(LoggingExtras.TeeLogger(NULL_LOGGER, CONSOLE_LOGGER))
 
-# Include your API and DB modules
+# Include submodules
 include("api.jl")
 include("db.jl")
 
@@ -31,4 +32,4 @@ export get_tickers_all, get_tickers_etf, get_tickers_stock
 export connect_postgres, close_postgres, export_to_postgres
 export list_tables
 
-end # end of module
+end # module TiingoJulia

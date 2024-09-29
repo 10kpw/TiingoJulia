@@ -45,35 +45,47 @@ function fetch_ticker_data(
 )::DataFrame
     headers = Dict("Authorization" => "Token $api_key")
 
-    if isnothing(end_date)
-        meta_url = "$base_url/$ticker"
-        try
-            meta_resp = HTTP.get(meta_url, headers=headers)
-            @assert meta_resp.status == 200 "Failed to fetch metadata for $ticker"
-            meta_data = JSON3.read(String(meta_resp.body))
-            end_date = meta_data.endDate
-            start_date = isnothing(start_date) ? meta_data.startDate : start_date
-        catch e
-            error("Error fetching metadata for $ticker: $(e)")
-        end
-    end
-
-    start_date = Dates.format(Date(start_date), "yyyy-mm-dd")
-    end_date = Dates.format(Date(end_date), "yyyy-mm-dd")
+    start_date, end_date = get_date_range(ticker, start_date, end_date, headers, base_url)
 
     url = "$base_url/$ticker/prices"
-    query = Dict("startDate" => start_date, "endDate" => end_date)
+    query = Dict("startDate" => Dates.format(Date(start_date), "yyyy-mm-dd"),
+                 "endDate" => Dates.format(Date(end_date), "yyyy-mm-dd"))
 
+    data = fetch_api_data(url, query, headers)
+    return DataFrame(data)
+end
+
+"""
+    get_date_range(ticker::String, start_date, end_date, headers::Dict, base_url::String)
+
+Helper function to get the date range for the ticker data.
+"""
+function get_date_range(ticker::String, start_date, end_date, headers::Dict, base_url::String)
+    if isnothing(end_date)
+        meta_url = "$base_url/$ticker"
+        meta_data = fetch_api_data(meta_url, nothing, headers)
+        end_date = meta_data.endDate
+        start_date = isnothing(start_date) ? meta_data.startDate : start_date
+    end
+    return start_date, end_date
+end
+
+"""
+    fetch_api_data(url::String, query::Union{Dict,Nothing}, headers::Dict)
+
+Helper function to fetch data from the API.
+"""
+function fetch_api_data(url::String, query::Union{Dict,Nothing}, headers::Dict)
     try
-        response = HTTP.get(url, query=query, headers=headers)
-        @assert response.status == 200 "Failed to fetch data for $ticker"
+        response = isnothing(query) ? HTTP.get(url, headers=headers) : HTTP.get(url, query=query, headers=headers)
+        @assert response.status == 200 "Failed to fetch data from $url"
 
-        data = JSON3.read(String(response.body), Vector{Dict})
-        @assert !isempty(data) "No data returned for $ticker"
+        data = JSON3.read(String(response.body))
+        @assert !isempty(data) "No data returned from $url"
 
-        return DataFrame(data)
+        return data
     catch e
-        error("Error fetching data for $ticker: $(e)")
+        error("Error fetching data from $url: $(e)")
     end
 end
 
@@ -88,45 +100,64 @@ function download_latest_tickers(
     zip_file_path::String = "supported_tickers.zip"
 )
     try
-        # Download the zip file
-        HTTP.download(tickers_url, zip_file_path)
-
-        # Unzip the file
-        r = ZipFile.Reader(zip_file_path)
-        for f in r.files
-            open(f.name, "w") do io
-                write(io, read(f))
-            end
-        end
-        close(r)
-
-        # Connect to the duckdb database
-        conn = DBInterface.connect(DuckDB.DB, duckdb_path)
-
-        try
-            DBInterface.execute(conn, """
-            CREATE OR REPLACE TABLE us_tickers AS
-            SELECT * FROM read_csv("supported_tickers.csv")
-            """)
-            @info "Downloaded and processed the latest tickers from Tiingo"
-        catch e
-            # If an error occurs, rollback the transaction
-            DBInterface.execute(conn, "ROLLBACK;")
-            rethrow(e)
-        finally
-            # Always close the connection
-            DBInterface.close(conn)
-        end
-
-        # Delete the unzipped csv file
-        if isfile("supported_tickers.csv")
-            rm("supported_tickers.csv")
-            @info "File 'supported_tickers.csv' has been deleted."
-        else
-            @warn "File 'supported_tickers.csv' does not exist."
-        end
+        download_and_unzip(tickers_url, zip_file_path)
+        process_tickers_csv(duckdb_path)
+        cleanup_files(zip_file_path)
     catch e
         error("Error in download_latest_tickers: $(e)")
+    end
+end
+
+"""
+    download_and_unzip(url::String, zip_file_path::String)
+
+Helper function to download and unzip a file.
+"""
+function download_and_unzip(url::String, zip_file_path::String)
+    HTTP.download(url, zip_file_path)
+    r = ZipFile.Reader(zip_file_path)
+    for f in r.files
+        open(f.name, "w") do io
+            write(io, read(f))
+        end
+    end
+    close(r)
+end
+
+"""
+    process_tickers_csv(duckdb_path::String)
+
+Helper function to process the tickers CSV file and insert into DuckDB.
+"""
+function process_tickers_csv(duckdb_path::String)
+    conn = DBInterface.connect(DuckDB.DB, duckdb_path)
+    try
+        DBInterface.execute(conn, """
+        CREATE OR REPLACE TABLE us_tickers AS
+        SELECT * FROM read_csv("supported_tickers.csv")
+        """)
+        @info "Downloaded and processed the latest tickers from Tiingo"
+    catch e
+        DBInterface.execute(conn, "ROLLBACK;")
+        rethrow(e)
+    finally
+        DBInterface.close(conn)
+    end
+end
+
+"""
+    cleanup_files(zip_file_path::String)
+
+Helper function to clean up temporary files.
+"""
+function cleanup_files(zip_file_path::String)
+    for file in [zip_file_path, "supported_tickers.csv"]
+        if isfile(file)
+            rm(file)
+            @info "File '$file' has been deleted."
+        else
+            @warn "File '$file' does not exist."
+        end
     end
 end
 
