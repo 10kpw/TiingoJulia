@@ -1,35 +1,40 @@
-name: pre-commit Update
+name: Pre-commit Update
 
 on:
   schedule:
-    - cron: "0 7 1/7 * *" # At 7:00 every 7 days
+    - cron: "0 7 1/7 * *"  # At 07:00 UTC every 7 days
   workflow_dispatch:
 
 jobs:
-  pre-commit-update:
+  update-pre-commit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Python
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          cache: pip
+          python-version: '3.x'  # Specify a Python version
+          cache: 'pip'
+
       - name: Install pre-commit
         run: pip install pre-commit
-      - name: Run pre-commit's autoupdate
-        run: |
-          # ignore exit code
-          pre-commit autoupdate || true
+
+      - name: Run pre-commit autoupdate
+        run: pre-commit autoupdate || true
+
       - name: Create Pull Request
-        id: cpr
         uses: peter-evans/create-pull-request@v7
         with:
-          commit-message: "chore: :robot: pre-commit update"
-          title: "[AUTO] pre-commit update"
-          branch: auto-pre-commit-update
+          commit-message: "chore: Update pre-commit hooks"
+          title: "chore: Update pre-commit hooks"
+          body: "This PR updates the pre-commit hooks to their latest versions."
+          branch: update-pre-commit-hooks
           delete-branch: true
-          labels: chore
-      - name: Check outputs
+          labels: chore,dependencies
+
+      - name: Check Pull Request status
         run: |
-          echo "Pull Request Number - ${{ steps.cpr.outputs.pull-request-number }}"
-          echo "Pull Request URL - ${{ steps.cpr.outputs.pull-request-url }}"
+          echo "Pull Request Number - ${{ steps.create-pr.outputs.pull-request-number }}"
+          echo "Pull Request URL - ${{ steps.create-pr.outputs.pull-request-url }}"
