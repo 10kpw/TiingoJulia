@@ -1,5 +1,6 @@
 # Database related functions
 using DataFrames
+using DBInterface
 using DuckDB
 using LibPQ
 using Dates
