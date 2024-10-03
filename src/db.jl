@@ -440,18 +440,20 @@ end
     generate_create_table_query(table_name::String, schema::DataFrame)
 
 Generate a CREATE TABLE query for PostgreSQL based on the DuckDB schema.
+Converts all column names to lowercase to avoid case-sensitivity issues.
 """
 function generate_create_table_query(table_name::String, schema::DataFrame)
-    query = "CREATE TABLE IF NOT EXISTS $table_name ("
+    query = "CREATE TABLE IF NOT EXISTS $(lowercase(table_name)) ("
+    columns = []
     for row in eachrow(schema)
-        column_name = row.column_name
+        column_name = lowercase(row.column_name)
         data_type = row.column_type
         pg_type = map_duckdb_to_postgres_type(data_type)
-        query *= "\"$column_name\" $pg_type, "
+        push!(columns, "$(column_name) $(pg_type)")
     end
-    query = chop(query, tail=2)
+    query *= join(columns, ", ")
 
-    if table_name == "historical_data"
+    if lowercase(table_name) == "historical_data"
         query *= ", UNIQUE (ticker, date)"
     end
 
