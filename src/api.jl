@@ -102,7 +102,7 @@ function download_latest_tickers(
     try
         download_and_unzip(tickers_url, zip_file_path)
         process_tickers_csv(duckdb_path)
-        cleanup_files(zip_file_path)
+        # cleanup_files(zip_file_path)
     catch e
         error("Error in download_latest_tickers: $(e)")
     end
