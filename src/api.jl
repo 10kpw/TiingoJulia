@@ -176,7 +176,7 @@ function generate_filtered_tickers(;
 
         # Filter the table to only include US tickers
         DBInterface.execute(conn, """
-        CREATE OR REPLACE TABLE 'us_tickers_filtered' AS
+        CREATE OR REPLACE TABLE us_tickers_filtered AS
         SELECT * FROM us_tickers
          WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
            AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock')
