@@ -176,7 +176,8 @@ function generate_filtered_tickers(
 
         # Check if us_tickers table exists and has data
         result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers")
-        us_tickers_count = DBInterface.fetch(result)[1]
+        us_tickers_count = DBInterface.fetch(result) |> first |> only
+
         if us_tickers_count == 0
             error("us_tickers table is empty or does not exist")
         end
@@ -194,7 +195,7 @@ function generate_filtered_tickers(
 
         # Verify the table was created and has rows
         result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered")
-        filtered_count = DBInterface.fetch(result)[1]
+        filtered_count = DBInterface.fetch(result) |> first |> only
 
         @info "Original us_tickers count: $us_tickers_count"
         @info "Filtered us_tickers_filtered count: $filtered_count"
