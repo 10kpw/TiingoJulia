@@ -166,13 +166,19 @@ end
 
 Generate a filtered list of US tickers.
 """
-function generate_filtered_tickers(;
+function generate_filtered_tickers(
     duckdb_path::String = "tiingo_historical_data.duckdb"
 )
     conn = nothing
     try
         # Connect to the duckdb database
         conn = DBInterface.connect(DuckDB.DB, duckdb_path)
+
+        # Check if us_tickers table exists
+        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'us_tickers'")
+        if DBInterface.fetch(result)[1] == 0
+            error("us_tickers table does not exist")
+        end
 
         # Filter the table to only include US tickers
         DBInterface.execute(conn, """
@@ -184,8 +190,20 @@ function generate_filtered_tickers(;
            AND ticker NOT LIKE '%/%'
         """)
 
-        @info "Generated filtered list of US tickers"
+        # Verify the table was created and has rows
+        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered")
+        row_count = DBInterface.fetch(result)[1]
+        if row_count == 0
+            @warn "us_tickers_filtered table was created but contains no rows"
+        else
+            @info "Generated filtered list of US tickers with $row_count rows"
+        end
     catch e
-        error("Error in generate_filtered_tickers: $(e)")
+        @error "Error in generate_filtered_tickers: $(e)"
+        rethrow(e)
+    finally
+        if conn !== nothing
+            DBInterface.close(conn)
+        end
     end
 end
