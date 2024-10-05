@@ -174,12 +174,6 @@ function generate_filtered_tickers(
         # Connect to the duckdb database
         conn = DBInterface.connect(DuckDB.DB, duckdb_path)
 
-        # Check if us_tickers table exists
-        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'us_tickers'")
-        if DBInterface.fetch(result)[1] == 0
-            error("us_tickers table does not exist")
-        end
-
         # Filter the table to only include US tickers
         DBInterface.execute(conn, """
         CREATE OR REPLACE TABLE us_tickers_filtered AS
@@ -190,14 +184,7 @@ function generate_filtered_tickers(
            AND ticker NOT LIKE '%/%'
         """)
 
-        # Verify the table was created and has rows
-        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered")
-        row_count = DBInterface.fetch(result)[1]
-        if row_count == 0
-            @warn "us_tickers_filtered table was created but contains no rows"
-        else
-            @info "Generated filtered list of US tickers with $row_count rows"
-        end
+        @info "Generated filtered list of US tickers"
     catch e
         @error "Error in generate_filtered_tickers: $(e)"
         rethrow(e)
