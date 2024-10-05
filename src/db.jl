@@ -207,7 +207,7 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
-    end_date = maximum(skipmissing(tickers.endDate))
+    end_date = maximum(skipmissing(tickers.end_date))
     missing_tickers = String[]
     updated_tickers = String[]
 
@@ -268,7 +268,7 @@ function update_splitted_ticker(
     tickers::DataFrame, # all tickers is best
     api_key::String = get_api_key()
 )
-    end_date = maximum(skipmissing(tickers.endDate))
+    end_date = maximum(skipmissing(tickers.end_date))
 
     splitted_tickers = DBInterface.execute(conn, """
     SELECT ticker, splitFactor, date
