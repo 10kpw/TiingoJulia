@@ -1,5 +1,6 @@
 # Database related functions
 using DataFrames
+using DBInterface
 using DuckDB
 using LibPQ
 using Dates
@@ -33,15 +34,6 @@ end
 const DuckDBConnection = DBInterface.Connection
 const PostgreSQLConnection = LibPQ.Connection
 
-# Connection context manager
-struct DBConnection
-    conn::Union{DuckDBConnection, PostgreSQLConnection}
-    close_func::Function
-end
-
-function Base.close(db::DBConnection)
-    db.close_func(db.conn)
-end
 # Set up logging to file
 function setup_logging()
     logger = SimpleLogger(open(LOG_FILE, "a"))
@@ -53,11 +45,11 @@ end
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
 """
-function connect_db(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DBConnection
+function connect_db(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
         conn = DBInterface.connect(DuckDB.DB, path)
         create_tables(conn)
-        return DBConnection(conn, close_db)
+        return conn
     catch e
         @error "Failed to connect to DuckDB database" exception=(e, catch_backtrace())
         throw(DatabaseConnectionError("Failed to connect to DuckDB: $e"))
@@ -131,7 +123,7 @@ close_db(conn::DuckDBConnection) = DBInterface.close(conn)
 
 Update the us_tickers table in the database from a CSV file.
 """
-function update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
+function update_us_tickers(conn::DuckDBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
     query = """
     CREATE OR REPLACE TABLE $(DBConstants.Tables.US_TICKERS) AS
     SELECT * FROM read_csv('$csv_file')
@@ -146,7 +138,7 @@ function update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DE
 end
 
 """
-    upsert_stock_data(conn::DBInterface.Connection, data::DataFrame, ticker::String)
+    upsert_stock_data(conn::DuckDBConnection, data::DataFrame, ticker::String)
 
 Upsert stock data into the historical_data table.
 """
@@ -215,7 +207,7 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
-    end_date = maximum(skipmissing(tickers.endDate))
+    end_date = maximum(skipmissing(tickers.end_date))
     missing_tickers = String[]
     updated_tickers = String[]
 
@@ -276,7 +268,7 @@ function update_splitted_ticker(
     tickers::DataFrame, # all tickers is best
     api_key::String = get_api_key()
 )
-    end_date = maximum(skipmissing(tickers.endDate))
+    end_date = maximum(skipmissing(tickers.end_date))
 
     splitted_tickers = DBInterface.execute(conn, """
     SELECT ticker, splitFactor, date
@@ -290,7 +282,7 @@ function update_splitted_ticker(
         if ismissing(symbol) || symbol === nothing
             continue  # Skip this row if ticker is missing or null
         end
-        start_date = tickers[tickers.ticker .== symbol, :startDate][1]
+        start_date = tickers[tickers.ticker .== symbol, :start_date][1]
         @info "$i: Updating split ticker $symbol from $start_date to $end_date"
         ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
         upsert_stock_data(conn, ticker_data, symbol)
@@ -304,11 +296,13 @@ end
 Get all tickers from the us_tickers_filtered table.
 """
 function get_tickers_all(conn::DBInterface.Connection)::DataFrame
-    DBInterface.execute(conn, """
-    SELECT ticker, exchange, assetType, startDate, endDate
+    query = """
+    SELECT ticker, exchange, assettype as asset_type, startdate as start_date, enddate as end_date
     FROM us_tickers_filtered
     ORDER BY ticker;
-    """) |> DataFrame
+    """
+    df = DBInterface.execute(conn, query) |> DataFrame
+    return df
 end
 
 """
@@ -318,7 +312,7 @@ Get all ETF tickers from the us_tickers_filtered table.
 """
 function get_tickers_etf(conn::DBInterface.Connection)::DataFrame
     DBInterface.execute(conn, """
-    SELECT ticker, exchange, assetType, startDate, endDate
+    SELECT ticker, exchange, assettype as asset_type, startdate as start_date, enddate as end_date
     FROM us_tickers_filtered
     WHERE assetType = 'ETF'
     ORDER BY ticker;
@@ -332,7 +326,7 @@ Get all stock tickers from the us_tickers_filtered table.
 """
 function get_tickers_stock(conn::DBInterface.Connection)::DataFrame
     DBInterface.execute(conn, """
-    SELECT ticker, exchange, assetType, startDate, endDate
+    SELECT ticker, exchange, assettype as asset_type, startdate as start_date, enddate as end_date
     FROM us_tickers_filtered
     WHERE assetType = 'Stock'
     ORDER BY ticker;
@@ -361,13 +355,13 @@ Close the PostgreSQL database connection.
 close_postgres(conn::PostgreSQLConnection) = LibPQ.close(conn)
 
 """
-    export_to_postgres(duckdb_conn::DBConnection, pg_conn::DBConnection, tables::Vector{String}; kwargs...)
+    export_to_postgres(duckdb_conn::DuckDBConnection, pg_conn::PostgreSQLConnection, tables::Vector{String}; pg_host::String="127.0.0.1", pg_user::String="otwn", pg_dbname::String="tiingo")
 
 Export tables from DuckDB to PostgreSQL.
 """
 function export_to_postgres(
-    duckdb_conn::DBConnection,
-    pg_conn::DBConnection,
+    duckdb_conn::DuckDBConnection,
+    pg_conn::PostgreSQLConnection,
     tables::Vector{String};
     pg_host::String="127.0.0.1",
     pg_user::String="otwn",
@@ -377,7 +371,7 @@ function export_to_postgres(
 )
     for table_name in tables
         retry_with_exponential_backoff(max_retries, retry_delay) do
-            export_table_to_postgres(duckdb_conn.conn, pg_conn.conn, table_name, pg_host, pg_user, pg_dbname)
+            export_table_to_postgres(duckdb_conn, pg_conn, table_name, pg_host, pg_user, pg_dbname)
             @info "Successfully exported $table_name from DuckDB to PostgreSQL"
         end
     end
@@ -448,18 +442,20 @@ end
     generate_create_table_query(table_name::String, schema::DataFrame)
 
 Generate a CREATE TABLE query for PostgreSQL based on the DuckDB schema.
+Converts all column names to lowercase to avoid case-sensitivity issues.
 """
 function generate_create_table_query(table_name::String, schema::DataFrame)
-    query = "CREATE TABLE IF NOT EXISTS $table_name ("
+    query = "CREATE TABLE IF NOT EXISTS $(lowercase(table_name)) ("
+    columns = []
     for row in eachrow(schema)
-        column_name = row.column_name
+        column_name = lowercase(row.column_name)
         data_type = row.column_type
         pg_type = map_duckdb_to_postgres_type(data_type)
-        query *= "\"$column_name\" $pg_type, "
+        push!(columns, "$(column_name) $(pg_type)")
     end
-    query = chop(query, tail=2)
+    query *= join(columns, ", ")
 
-    if table_name == "historical_data"
+    if lowercase(table_name) == "historical_data"
         query *= ", UNIQUE (ticker, date)"
     end
 

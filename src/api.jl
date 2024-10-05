@@ -102,7 +102,7 @@ function download_latest_tickers(
     try
         download_and_unzip(tickers_url, zip_file_path)
         process_tickers_csv(duckdb_path)
-        cleanup_files(zip_file_path)
+        # cleanup_files(zip_file_path)
     catch e
         error("Error in download_latest_tickers: $(e)")
     end
@@ -166,16 +166,28 @@ end
 
 Generate a filtered list of US tickers.
 """
-function generate_filtered_tickers(;
+function generate_filtered_tickers(
     duckdb_path::String = "tiingo_historical_data.duckdb"
 )
+    conn = nothing
     try
         # Connect to the duckdb database
         conn = DBInterface.connect(DuckDB.DB, duckdb_path)
 
-        # Filter the table to only include US tickers
+        # Check if us_tickers table exists and has data
+        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers")
+        us_tickers_count = DBInterface.fetch(result) |> first |> only
+
+        if us_tickers_count == 0
+            error("us_tickers table is empty or does not exist")
+        end
+
+        # Drop the existing table if it exists
+        DBInterface.execute(conn, "DROP TABLE IF EXISTS us_tickers_filtered")
+
+        # Create and populate the filtered table
         DBInterface.execute(conn, """
-        CREATE OR REPLACE TABLE 'us_tickers_filtered' AS
+        CREATE TABLE us_tickers_filtered AS
         SELECT * FROM us_tickers
          WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
            AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock')
@@ -183,11 +195,25 @@ function generate_filtered_tickers(;
            AND ticker NOT LIKE '%/%'
         """)
 
-        @info "Generated filtered list of US tickers"
+        # Verify the table was created and has rows
+        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered")
+        filtered_count = DBInterface.fetch(result) |> first |> only
+
+        @info "Original us_tickers count: $us_tickers_count"
+        @info "Filtered us_tickers_filtered count: $filtered_count"
+
+        if filtered_count == 0
+            @warn "us_tickers_filtered table was created but contains no rows"
+        else
+            @info "Generated filtered list of US tickers with $filtered_count rows"
+        end
+
     catch e
-        error("Error in generate_filtered_tickers: $(e)")
+        @error "Error in generate_filtered_tickers: $(e)"
+        rethrow(e)
     finally
-        # Always close the connection
-        DBInterface.close(conn)
+        if conn !== nothing
+            DBInterface.close(conn)
+        end
     end
 end
