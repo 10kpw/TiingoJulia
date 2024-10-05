@@ -182,9 +182,11 @@ function generate_filtered_tickers(
             error("us_tickers table is empty or does not exist")
         end
 
-        # Filter the table to only include US tickers
+        # Drop the existing table if it exists
+        DBInterface.execute(conn, "DROP TABLE IF EXISTS us_tickers_filtered")
+
+        # Create and populate the filtered table
         DBInterface.execute(conn, """
-        DROP TABLE IF EXISTS us_tickers_filtered;
         CREATE TABLE us_tickers_filtered AS
         SELECT * FROM us_tickers
          WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
