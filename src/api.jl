@@ -174,9 +174,17 @@ function generate_filtered_tickers(
         # Connect to the duckdb database
         conn = DBInterface.connect(DuckDB.DB, duckdb_path)
 
+        # Check if us_tickers table exists and has data
+        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers")
+        us_tickers_count = DBInterface.fetch(result)[1]
+        if us_tickers_count == 0
+            error("us_tickers table is empty or does not exist")
+        end
+
         # Filter the table to only include US tickers
         DBInterface.execute(conn, """
-        CREATE OR REPLACE TABLE us_tickers_filtered AS
+        DROP TABLE IF EXISTS us_tickers_filtered;
+        CREATE TABLE us_tickers_filtered AS
         SELECT * FROM us_tickers
          WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
            AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock')
@@ -184,7 +192,22 @@ function generate_filtered_tickers(
            AND ticker NOT LIKE '%/%'
         """)
 
-        @info "Generated filtered list of US tickers"
+        # Verify the table was created and has rows
+        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered")
+        filtered_count = DBInterface.fetch(result)[1]
+
+        @info "Original us_tickers count: $us_tickers_count"
+        @info "Filtered us_tickers_filtered count: $filtered_count"
+
+        if filtered_count == 0
+            @warn "us_tickers_filtered table was created but contains no rows"
+        else
+            @info "Generated filtered list of US tickers with $filtered_count rows"
+        end
+
+        # Commit the changes
+        DBInterface.execute(conn, "COMMIT;")
+
     catch e
         @error "Error in generate_filtered_tickers: $(e)"
         rethrow(e)
