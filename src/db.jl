@@ -282,7 +282,7 @@ function update_splitted_ticker(
         if ismissing(symbol) || symbol === nothing
             continue  # Skip this row if ticker is missing or null
         end
-        start_date = tickers[tickers.ticker .== symbol, :startDate][1]
+        start_date = tickers[tickers.ticker .== symbol, :start_date][1]
         @info "$i: Updating split ticker $symbol from $start_date to $end_date"
         ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
         upsert_stock_data(conn, ticker_data, symbol)
