@@ -297,7 +297,7 @@ Get all tickers from the us_tickers_filtered table.
 """
 function get_tickers_all(conn::DBInterface.Connection)::DataFrame
     query = """
-    SELECT ticker, exchange, "assetType" as asset_type, "startDate" as start_date, "endDate" as end_date
+    SELECT ticker, exchange, assettype as asset_type, startdate as start_date, enddate as end_date
     FROM us_tickers_filtered
     ORDER BY ticker;
     """

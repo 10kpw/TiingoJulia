@@ -187,10 +187,5 @@ function generate_filtered_tickers(;
         @info "Generated filtered list of US tickers"
     catch e
         error("Error in generate_filtered_tickers: $(e)")
-    finally
-        # Always close the connection if it's open
-        if conn !== nothing
-            DBInterface.close(conn)
-        end
     end
 end
