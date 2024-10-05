@@ -208,9 +208,6 @@ function generate_filtered_tickers(
             @info "Generated filtered list of US tickers with $filtered_count rows"
         end
 
-        # Commit the changes
-        DBInterface.execute(conn, "COMMIT;")
-
     catch e
         @error "Error in generate_filtered_tickers: $(e)"
         rethrow(e)
