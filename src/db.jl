@@ -312,7 +312,7 @@ Get all ETF tickers from the us_tickers_filtered table.
 """
 function get_tickers_etf(conn::DBInterface.Connection)::DataFrame
     DBInterface.execute(conn, """
-    SELECT ticker, exchange, assetType, startDate, endDate
+    SELECT ticker, exchange, assettype as asset_type, startdate as start_date, enddate as end_date
     FROM us_tickers_filtered
     WHERE assetType = 'ETF'
     ORDER BY ticker;
@@ -326,7 +326,7 @@ Get all stock tickers from the us_tickers_filtered table.
 """
 function get_tickers_stock(conn::DBInterface.Connection)::DataFrame
     DBInterface.execute(conn, """
-    SELECT ticker, exchange, assetType, startDate, endDate
+    SELECT ticker, exchange, assettype as asset_type, startdate as start_date, enddate as end_date
     FROM us_tickers_filtered
     WHERE assetType = 'Stock'
     ORDER BY ticker;
