@@ -130,9 +130,10 @@ end
 Helper function to process the tickers CSV file and insert into DuckDB.
 """
 function process_tickers_csv(duckdb_path::String)
-    conn = DBInterface.connect(DuckDB.DB, duckdb_path)
+    db = DuckDB.DB(duckdb_path)
+    conn = DBInterface.connect(db)
     try
-        DBInterface.execute(conn, """
+        DBInterface.execute(conn, sql"""
         CREATE OR REPLACE TABLE us_tickers AS
         SELECT * FROM read_csv("supported_tickers.csv")
         """)
