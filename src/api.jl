@@ -141,8 +141,6 @@ function process_tickers_csv(duckdb_path::String)
     catch e
         DBInterface.execute(conn, "ROLLBACK;")
         rethrow(e)
-    finally
-        DuckDB.close(conn)
     end
 end
 
