@@ -116,7 +116,7 @@ end
 
 Close the DuckDB database connection.
 """
-close_db(conn::DuckDBConnection) = DBInterface.close(conn)
+close_db(conn::DuckDBConnection) = DuckDB.close(conn)
 
 """
     update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)

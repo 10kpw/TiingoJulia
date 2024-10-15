@@ -142,7 +142,7 @@ function process_tickers_csv(duckdb_path::String)
         DBInterface.execute(conn, "ROLLBACK;")
         rethrow(e)
     finally
-        DBInterface.close(conn)
+        DuckDB.close(conn)
     end
 end
 
@@ -214,7 +214,7 @@ function generate_filtered_tickers(
         rethrow(e)
     finally
         if conn !== nothing
-            DBInterface.close(conn)
+            DuckDB.close(conn)
         end
     end
 end
