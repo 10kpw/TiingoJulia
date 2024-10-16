@@ -210,9 +210,5 @@ function generate_filtered_tickers(
     catch e
         @error "Error in generate_filtered_tickers: $(e)"
         rethrow(e)
-    finally
-        if conn !== nothing
-            DuckDB.close(conn)
-        end
     end
 end
