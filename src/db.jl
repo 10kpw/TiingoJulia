@@ -214,7 +214,7 @@ function update_historical(
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
         hist_data = DBInterface.execute(conn, """
-        SELECT ticker, DATE max(date) + 1 AS latest_date
+        SELECT ticker, max(date) + 1 AS latest_date
         FROM historical_data
         WHERE ticker = '$symbol'
         GROUP BY 1
