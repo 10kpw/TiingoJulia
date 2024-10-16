@@ -216,16 +216,16 @@ function update_historical(
         symbol = row.ticker
         start_date = row.start_date
         hist_data = DBInterface.execute(conn, """
-        SELECT ticker, COALESCE(MAX(date) + INTERVAL '1 day', ?::DATE) AS latest_date
+        SELECT ticker, MAX(date) AS max_date
         FROM historical_data
         WHERE ticker = ?
         GROUP BY ticker
-        """, (start_date, symbol)) |> DataFrame
+        """, (symbol,)) |> DataFrame
 
         if isempty(hist_data)
-            latest_date = Date(start_date)
+            latest_date = start_date
         else
-            latest_date = hist_data.latest_date[1]
+            latest_date = Date(hist_data.latest_date[1]) + Dates.Day(1)
         end
 
         if latest_date <= end_date
