@@ -208,36 +208,29 @@ function update_historical(
     add_missing::Bool = true
 )
     end_date = maximum(skipmissing(tickers.end_date))
+    @info "tickers.end_date: $end_date"
     missing_tickers = String[]
     updated_tickers = String[]
 
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
+        start_date = row.start_date
         hist_data = DBInterface.execute(conn, """
-        SELECT ticker, CAST(max(date) AS DATE) + 1 AS latest_date
+        SELECT ticker, COALESCE(DATE(MAX(date)) + INTERVAL '1 day', ?::DATE) AS latest_date
         FROM historical_data
-        WHERE ticker = '$symbol'
-        GROUP BY 1
-        ORDER BY 1;
-        """) |> DataFrame
+        WHERE ticker = ?
+        GROUP BY ticker
+        """, (start_date, symbol)) |> DataFrame
 
-        if isempty(hist_data.latest_date)
-            push!(missing_tickers, symbol)
-            if add_missing
-                @info "Adding missing ticker: $symbol"
-                add_historical_data(conn, symbol, api_key)
-                push!(updated_tickers, symbol)
-            else
-                @info "Skipping missing ticker: $symbol"
-            end
-            continue
+        if isempty(hist_data)
+            latest_date = Date(start_date)
+        else
+            latest_date = hist_data.latest_date[1]
         end
 
-        start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
-
-        if Date(start_date) <= end_date
-            println("$i : $symbol : $start_date ~ $end_date")
-            ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
+        if latest_date <= end_date
+            println("$i : $symbol : $latest_date ~ $end_date")
+            ticker_data = fetch_ticker_data(symbol; start_date=latest_date, end_date=end_date, api_key=api_key)
             upsert_stock_data(conn, ticker_data, symbol)
             push!(updated_tickers, symbol)
         else
