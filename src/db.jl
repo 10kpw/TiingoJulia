@@ -214,18 +214,23 @@ function update_historical(
 
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
-        start_date = row.start_date
-        hist_data = DBInterface.execute(conn, """
+        start_date = Date(row.start_date)  # Ensure this is a Date type
+
+        # Query to get the max date for the ticker without using parameters
+        query = """
         SELECT ticker, MAX(date) AS max_date
         FROM historical_data
-        WHERE ticker = ?
+        WHERE ticker = '$(escape_string(symbol))'
         GROUP BY ticker
-        """, (symbol,)) |> DataFrame
+        """
+
+        hist_data = DBInterface.execute(conn, query) |> DataFrame
 
         if isempty(hist_data)
             latest_date = start_date
         else
-            latest_date = Date(hist_data.latest_date[1]) + Dates.Day(1)
+            # Add one day to the max date in Julia
+            latest_date = Date(hist_data.max_date[1]) + Dates.Day(1)
         end
 
         if latest_date <= end_date
