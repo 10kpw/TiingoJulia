@@ -41,11 +41,11 @@ function setup_logging()
 end
 
 """
-    connect_db(path::String = DBConstants.DEFAULT_DUCKDB_PATH)
+    connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
 """
-function connect_db(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
+function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
         conn = DBInterface.connect(DuckDB.DB, path)
         create_tables(conn)

@@ -7,7 +7,7 @@ using DBInterface
     @test isa(get_api_key(), String)
     @test !isempty(get_api_key())
 
-    conn = connect_db()
+    conn = connect_duckdb()
     @test isa(conn, DBInterface.Connection)
 
     # Add some dummy data to us_tickers_filtered
