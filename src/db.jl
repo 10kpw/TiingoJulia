@@ -202,7 +202,7 @@ Returns:
 - A tuple containing two lists: (updated_tickers, missing_tickers)
 """
 function update_historical(
-    conn::DuckDBConnection,
+    conn::DBInterface.Connection,
     tickers::DataFrame,
     api_key::String = get_api_key();
     add_missing::Bool = true
