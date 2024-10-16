@@ -26,7 +26,7 @@ include("db.jl")
 # Export functions
 export get_api_key
 export fetch_ticker_data, download_latest_tickers, generate_filtered_tickers
-export connect_db, close_db, update_us_tickers, upsert_stock_data
+export connect_db, close_duckdb, update_us_tickers, upsert_stock_data
 export add_historical_data, update_historical, update_splitted_ticker
 export get_tickers_all, get_tickers_etf, get_tickers_stock
 export connect_postgres, close_postgres, export_to_postgres

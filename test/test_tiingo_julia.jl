@@ -25,7 +25,7 @@ using DBInterface
     # @test isa(data, DataFrame)
     # @test !isempty(data)
 
-    close_db(conn)
+    close_duckdb(conn)
 end
 
 println("All tests completed successfully!")
