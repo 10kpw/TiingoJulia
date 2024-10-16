@@ -216,7 +216,7 @@ function update_historical(
         symbol = row.ticker
         start_date = row.start_date
         hist_data = DBInterface.execute(conn, """
-        SELECT ticker, COALESCE(DATE(MAX(date)) + INTERVAL '1 day', ?::DATE) AS latest_date
+        SELECT ticker, COALESCE(MAX(date) + INTERVAL '1 day', ?::DATE) AS latest_date
         FROM historical_data
         WHERE ticker = ?
         GROUP BY ticker
