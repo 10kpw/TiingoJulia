@@ -112,11 +112,11 @@ function create_tables(conn::DuckDBConnection)
 end
 
 """
-    close_duckdb(conn::DuckDBConnection)
+    close_db(conn::DuckDBConnection)
 
 Close the DuckDB database connection.
 """
-close_duckdb(conn::DuckDBConnection) = DuckDB.close(conn)
+close_duckddb(conn::DuckDBConnection) = DuckDB.close(conn)
 
 """
     update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
@@ -202,40 +202,42 @@ Returns:
 - A tuple containing two lists: (updated_tickers, missing_tickers)
 """
 function update_historical(
-    conn::DBInterface.Connection,
+    conn::DuckDBConnection,
     tickers::DataFrame,
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
     end_date = maximum(skipmissing(tickers.end_date))
-    @info "tickers.end_date: $end_date"
     missing_tickers = String[]
     updated_tickers = String[]
 
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
-        start_date = Date(row.start_date)  # Ensure this is a Date type
-
-        # Query to get the max date for the ticker without using parameters
-        query = """
-        SELECT ticker, MAX(date) AS max_date
+        hist_data = DBInterface.execute(conn, """
+        SELECT ticker, DATE max(date) + 1 AS latest_date
         FROM historical_data
-        WHERE ticker = '$(escape_string(symbol))'
-        GROUP BY ticker
-        """
+        WHERE ticker = '$symbol'
+        GROUP BY 1
+        ORDER BY 1;
+        """) |> DataFrame
 
-        hist_data = DBInterface.execute(conn, query) |> DataFrame
-
-        if isempty(hist_data)
-            latest_date = start_date
-        else
-            # Add one day to the max date in Julia
-            latest_date = Date(hist_data.max_date[1]) + Dates.Day(1)
+        if isempty(hist_data.latest_date)
+            push!(missing_tickers, symbol)
+            if add_missing
+                @info "Adding missing ticker: $symbol"
+                add_historical_data(conn, symbol, api_key)
+                push!(updated_tickers, symbol)
+            else
+                @info "Skipping missing ticker: $symbol"
+            end
+            continue
         end
 
-        if latest_date <= end_date
-            println("$i : $symbol : $latest_date ~ $end_date")
-            ticker_data = fetch_ticker_data(symbol; start_date=latest_date, end_date=end_date, api_key=api_key)
+        start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
+
+        if Date(start_date) <= end_date
+            println("$i : $symbol : $start_date ~ $end_date")
+            ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
             upsert_stock_data(conn, ticker_data, symbol)
             push!(updated_tickers, symbol)
         else
