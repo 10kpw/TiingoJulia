@@ -166,13 +166,9 @@ end
 Generate a filtered list of US tickers.
 """
 function generate_filtered_tickers(
-    duckdb_path::String = "tiingo_historical_data.duckdb"
+    conn::DBInterface.Connection
 )
-    conn = nothing
     try
-        # Connect to the duckdb database
-        conn = DBInterface.connect(DuckDB.DB, duckdb_path)
-
         # Check if us_tickers table exists and has data
         result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers")
         us_tickers_count = DBInterface.fetch(result) |> first |> only
