@@ -129,7 +129,7 @@ end
 
 Helper function to process the tickers CSV file and insert into DuckDB.
 """
-function update_us_tickers(
+function process_tickers_csv(
     conn::DBInterface.Connection,
     csv_file::String = "supported_tickers.csv"
 )
