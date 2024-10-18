@@ -363,6 +363,7 @@ function export_to_postgres(
     duckdb_conn::DuckDBConnection,
     pg_conn::PostgreSQLConnection,
     tables::Vector{String};
+    parquet_file::String="historical_data.parquet",
     pg_host::String="127.0.0.1",
     pg_user::String="otwn",
     pg_dbname::String="tiingo",
@@ -371,7 +372,7 @@ function export_to_postgres(
 )
     for table_name in tables
         retry_with_exponential_backoff(max_retries, retry_delay) do
-            export_table_to_postgres(duckdb_conn, pg_conn, table_name, pg_host, pg_user, pg_dbname)
+            export_table_to_postgres(duckdb_conn, pg_conn, table_name, parquet_file, pg_host, pg_user, pg_dbname)
             @info "Successfully exported $table_name from DuckDB to PostgreSQL"
         end
     end
@@ -403,12 +404,13 @@ function export_table_to_postgres(
     duckdb_conn::DuckDBConnection,
     pg_conn::PostgreSQLConnection,
     table_name::String,
+    parquet_file::String,
     pg_host::String,
     pg_user::String,
     pg_dbname::String,
 )
     @info "Exporting table $table_name to PostgreSQL"
-    parquet_file = "$(table_name).parquet"
+    # parquet_file = "$(table_name).parquet"
 
     # Check if the table exists in DuckDB
     table_exists =
