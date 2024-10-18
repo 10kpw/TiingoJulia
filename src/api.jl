@@ -185,7 +185,7 @@ function generate_filtered_tickers(
         CREATE TABLE us_tickers_filtered AS
         SELECT * FROM us_tickers
          WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-           AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock')
+           AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
            AND assetType IN ('Stock', 'ETF')
            AND ticker NOT LIKE '%/%'
         """)
