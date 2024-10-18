@@ -94,12 +94,15 @@ end
 
 Download and process the latest tickers from Tiingo.
 """
-function download_latest_tickers(
-    tickers_url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip";
-    zip_file_path::String = "supported_tickers.zip"
+function download_tickers_duckdb(
+    conn_duckdb::DBInterface.Connection;
+    tickers_url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
+    zip_file_path::String = "supported_tickers.zip",
+    csv_file::String = "supported_tickers.csv",
 )
     try
-        download_and_unzip(tickers_url, zip_file_path)
+        download_latest_tickers(tickers_url, zip_file_path)
+        process_tickers_csv(conn_duckdb, csv_file)
     catch e
         error("Error in download_latest_tickers: $(e)")
     end
@@ -110,7 +113,10 @@ end
 
 Helper function to download and unzip a file.
 """
-function download_and_unzip(url::String, zip_file_path::String)
+function download_latest_tickers(
+    url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
+    zip_file_path::String = "supported_tickers.zip"
+)
     HTTP.download(url, zip_file_path)
     r = ZipFile.Reader(zip_file_path)
     for f in r.files
@@ -124,14 +130,14 @@ end
 """
     process_tickers_csv(
         conn::DBInterface.Connection,
-        csv::String="supported_tickers.csv"
+        csv_file::String="supported_tickers.csv"
     )
 
 Helper function to process the tickers CSV file and insert into DuckDB.
 """
 function process_tickers_csv(
     conn::DBInterface.Connection,
-    csv_file::String = "supported_tickers.csv"
+    csv_file::String
 )
     try
         DBInterface.execute(conn, """
