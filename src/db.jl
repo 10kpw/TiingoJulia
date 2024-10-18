@@ -207,7 +207,7 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
-    end_date = maximum(skipmissing(tickers.endDate))
+    end_date = maximum(skipmissing(tickers.end_date))
     missing_tickers = String[]
     updated_tickers = String[]
 
