@@ -443,14 +443,9 @@ function export_table_to_postgres(
             @info "Created table $table_name in PostgreSQL"
         else
             # If the table exists, rename it as a backup
-            LibPQ.execute(
-                pg_conn,
-                "CREATE OR REPLACE TABLE $(table_name)_backup AS TABLE $table_name;",
-            )
-            LibPQ.execute(
-                pg_conn,
-                "DROP TABLE IF EXISTS $table_name;"
-            )
+            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
+            LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
+            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
             LibPQ.execute(pg_conn, create_table_query)
             @info "Created new table $table_name in PostgreSQL, old table is stored as $(table_name)_backup"
         end
