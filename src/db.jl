@@ -112,11 +112,11 @@ function create_tables(conn::DuckDBConnection)
 end
 
 """
-    close_db(conn::DuckDBConnection)
+    close_duckdb(conn::DuckDBConnection)
 
 Close the DuckDB database connection.
 """
-close_duckddb(conn::DuckDBConnection) = DuckDB.close(conn)
+close_duckdb(conn::DuckDBConnection) = DuckDB.close(conn)
 
 """
     update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
