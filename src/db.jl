@@ -410,18 +410,18 @@ function export_table_to_postgres(
     @info "Exporting table $table_name to PostgreSQL"
     parquet_file = "$(table_name).parquet"
 
+    # Check if the table exists in DuckDB
+    table_exists =
+    DBInterface.execute(
+        duckdb_conn,
+        """SELECT name FROM sqlite_master WHERE type='table' AND name='$table_name';""",
+    ) |> DataFrame
+
+    if isempty(table_exists)
+        error("Table $table_name does not exist in DuckDB")
+    end
+
     try
-        # Check if the table exists in DuckDB
-        table_exists =
-            DBInterface.execute(
-                duckdb_conn,
-                """SELECT name FROM sqlite_master WHERE type='table' AND name='$table_name';""",
-            ) |> DataFrame
-
-        if isempty(table_exists)
-            error("Table $table_name does not exist in DuckDB")
-        end
-
         DBInterface.execute(duckdb_conn, """COPY $table_name TO '$parquet_file';""")
         @info "Exported $table_name to parquet file"
 
@@ -445,10 +445,14 @@ function export_table_to_postgres(
             # If the table exists, rename it as a backup
             LibPQ.execute(
                 pg_conn,
-                "ALTER TABLE $table_name RENAME TO $(table_name)_backup;",
+                "CREATE OR REPLACE TABLE $(table_name)_backup AS TABLE $table_name;",
+            )
+            LibPQ.execute(
+                pg_conn,
+                "DROP TABLE IF EXISTS $table_name;"
             )
             LibPQ.execute(pg_conn, create_table_query)
-            @info "Created new table $table_name in PostgreSQL, old table renamed to $(table_name)_backup"
+            @info "Created new table $table_name in PostgreSQL, old table is stored as $(table_name)_backup"
         end
 
         setup_postgres_connection(duckdb_conn, pg_host, pg_user, pg_dbname)
