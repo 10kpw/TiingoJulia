@@ -134,13 +134,12 @@ function process_tickers_csv(
     csv_file::String = "supported_tickers.csv"
 )
     try
-        DBInterface.execute(conn, sql"""
+        DBInterface.execute(conn, """
         CREATE OR REPLACE TABLE us_tickers AS
-        SELECT * FROM read_csv(csv_file)
+        SELECT * FROM read_csv($csv_file)
         """)
         @info "Processed the latest tickers from Tiingo"
     catch e
-        DBInterface.execute(conn, "ROLLBACK;")
         rethrow(e)
     end
 end
