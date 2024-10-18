@@ -96,13 +96,10 @@ Download and process the latest tickers from Tiingo.
 """
 function download_latest_tickers(
     tickers_url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip";
-    duckdb_path::String = "tiingo_historical_data.duckdb",
     zip_file_path::String = "supported_tickers.zip"
 )
     try
         download_and_unzip(tickers_url, zip_file_path)
-        process_tickers_csv(duckdb_path)
-        # cleanup_files(zip_file_path)
     catch e
         error("Error in download_latest_tickers: $(e)")
     end
@@ -125,19 +122,23 @@ function download_and_unzip(url::String, zip_file_path::String)
 end
 
 """
-    process_tickers_csv(duckdb_path::String)
+    process_tickers_csv(
+        conn::DBInterface.Connection,
+        csv::String="supported_tickers.csv"
+    )
 
 Helper function to process the tickers CSV file and insert into DuckDB.
 """
-function process_tickers_csv(duckdb_path::String)
-    db = DuckDB.DB(duckdb_path)
-    conn = DBInterface.connect(db)
+function update_us_tickers(
+    conn::DBInterface.Connection,
+    csv_file::String = "supported_tickers.csv"
+)
     try
         DBInterface.execute(conn, sql"""
         CREATE OR REPLACE TABLE us_tickers AS
-        SELECT * FROM read_csv("supported_tickers.csv")
+        SELECT * FROM read_csv(csv_file)
         """)
-        @info "Downloaded and processed the latest tickers from Tiingo"
+        @info "Processed the latest tickers from Tiingo"
     catch e
         DBInterface.execute(conn, "ROLLBACK;")
         rethrow(e)
@@ -177,12 +178,9 @@ function generate_filtered_tickers(
             error("us_tickers table is empty or does not exist")
         end
 
-        # Drop the existing table if it exists
-        DBInterface.execute(conn, "DROP TABLE IF EXISTS us_tickers_filtered")
-
         # Create and populate the filtered table
         DBInterface.execute(conn, """
-        CREATE TABLE us_tickers_filtered AS
+        CREATE OR REPLACE TABLE us_tickers_filtered AS
         SELECT * FROM us_tickers
          WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
            AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
@@ -207,4 +205,5 @@ function generate_filtered_tickers(
         @error "Error in generate_filtered_tickers: $(e)"
         rethrow(e)
     end
+
 end
