@@ -124,6 +124,7 @@ function download_latest_tickers(
             write(io, read(f))
         end
     end
+    @info "Unzipped: supported_tickers.csv"
     close(r)
 end
 
@@ -144,7 +145,7 @@ function process_tickers_csv(
         CREATE OR REPLACE TABLE us_tickers AS
         SELECT * FROM read_csv($csv_file)
         """)
-        @info "Processed the latest tickers from Tiingo"
+        @info "Update us_tickers in DuckDB with the csv"
     catch e
         rethrow(e)
     end
