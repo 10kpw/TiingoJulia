@@ -31,6 +31,6 @@ export add_historical_data, update_historical, update_splitted_ticker
 export get_tickers_all, get_tickers_etf, get_tickers_stock
 export connect_postgres, close_postgres, export_to_postgres
 export list_tables
-export ExportMethod
+
 
 end # module TiingoJulia

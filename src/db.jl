@@ -41,17 +41,6 @@ function setup_logging()
 end
 
 """
-Allow selecting either the DataFrame or Parquet method explicitly,
-while still maintaining the option to automatically choose based on table size
-"""
-@enum ExportMethod begin
-    UseDataFrame
-    UseParquet
-    AutoSelect
-end
-
-
-"""
     connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
@@ -380,14 +369,14 @@ function export_to_postgres(
     pg_dbname::String="tiingo",
     max_retries::Int=3,
     retry_delay::Int=5,
-    export_method::ExportMethod=AutoSelect,
+    use_dataframe::Union{Bool, Nothing}=nothing,
     max_rows_for_dataframe::Int = 1_000_000
 )
     for table_name in tables
         retry_with_exponential_backoff(max_retries, retry_delay) do
             export_table_to_postgres(
                 duckdb_conn, pg_conn, table_name, parquet_file, pg_host, pg_user, pg_dbname,
-                export_method=export_method, max_rows_for_dataframe=max_rows_for_dataframe
+                use_dataframe=use_dataframe, max_rows_for_dataframe=max_rows_for_dataframe
             )
             @info "Successfully exported $table_name from DuckDB to PostgreSQL"
         end
@@ -424,7 +413,7 @@ function export_table_to_postgres(
     pg_host::String,
     pg_user::String,
     pg_dbname::String;
-    export_method::ExportMethod=AutoSelect,
+    use_dataframe::Union{Bool, Nothing}=nothing,
     max_rows_for_dataframe::Int = 1_000_000
 )
     @info "Exporting table $table_name to PostgreSQL"
@@ -443,12 +432,14 @@ function export_table_to_postgres(
     row_count = DBInterface.execute(duckdb_conn, "SELECT COUNT(*) FROM $table_name") |> DataFrame
     row_count = row_count[1, 1]
 
-    method_to_use = export_method
-    if export_method == AutoSelect
-        method_to_use = row_count <= max_rows_for_dataframe ? UseDataFrame : UseParquet
+    # Determine whether to use DataFrame or Parquet
+    use_df = if isnothing(use_dataframe)
+        row_count <= max_rows_for_dataframe
+    else
+        use_dataframe
     end
 
-    if method_to_use == UseDataFrame
+    if use_df
         export_table_to_postgres_dataframe(duckdb_conn, pg_conn, table_name, pg_host, pg_user, pg_dbname)
     else
         export_table_to_postgres_parquet(duckdb_conn, pg_conn, table_name, parquet_file, pg_host, pg_user, pg_dbname)
