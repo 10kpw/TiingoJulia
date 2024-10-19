@@ -41,6 +41,17 @@ function setup_logging()
 end
 
 """
+Allow selecting either the DataFrame or Parquet method explicitly,
+while still maintaining the option to automatically choose based on table size
+"""
+@enum ExportMethod begin
+    UseDataFrame
+    UseParquet
+    AutoSelect
+end
+
+
+"""
     connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
@@ -353,16 +364,6 @@ end
 Close the PostgreSQL database connection.
 """
 close_postgres(conn::PostgreSQLConnection) = LibPQ.close(conn)
-
-"""
-Allow selecting either the DataFrame or Parquet method explicitly,
-while still maintaining the option to automatically choose based on table size
-"""
-@enum ExportMethod begin
-    UseDataFrame
-    UseParquet
-    AutoSelect
-end
 
 """
     export_to_postgres(duckdb_conn::DuckDBConnection, pg_conn::PostgreSQLConnection, tables::Vector{String}; pg_host::String="127.0.0.1", pg_user::String="otwn", pg_dbname::String="tiingo")
