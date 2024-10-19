@@ -355,6 +355,16 @@ Close the PostgreSQL database connection.
 close_postgres(conn::PostgreSQLConnection) = LibPQ.close(conn)
 
 """
+Allow selecting either the DataFrame or Parquet method explicitly,
+while still maintaining the option to automatically choose based on table size
+"""
+@enum ExportMethod begin
+    UseDataFrame
+    UseParquet
+    AutoSelect
+end
+
+"""
     export_to_postgres(duckdb_conn::DuckDBConnection, pg_conn::PostgreSQLConnection, tables::Vector{String}; pg_host::String="127.0.0.1", pg_user::String="otwn", pg_dbname::String="tiingo")
 
 Export tables from DuckDB to PostgreSQL.
@@ -368,11 +378,16 @@ function export_to_postgres(
     pg_user::String="otwn",
     pg_dbname::String="tiingo",
     max_retries::Int=3,
-    retry_delay::Int=5
+    retry_delay::Int=5,
+    export_method::ExportMethod=AutoSelect,
+    max_rows_for_dataframe::Int = 1_000_000
 )
     for table_name in tables
         retry_with_exponential_backoff(max_retries, retry_delay) do
-            export_table_to_postgres(duckdb_conn, pg_conn, table_name, parquet_file, pg_host, pg_user, pg_dbname)
+            export_table_to_postgres(
+                duckdb_conn, pg_conn, table_name, parquet_file, pg_host, pg_user, pg_dbname,
+                export_method=export_method, max_rows_for_dataframe=max_rows_for_dataframe
+            )
             @info "Successfully exported $table_name from DuckDB to PostgreSQL"
         end
     end
@@ -407,14 +422,14 @@ function export_table_to_postgres(
     parquet_file::String,
     pg_host::String,
     pg_user::String,
-    pg_dbname::String,
+    pg_dbname::String;
+    export_method::ExportMethod=AutoSelect,
+    max_rows_for_dataframe::Int = 1_000_000
 )
     @info "Exporting table $table_name to PostgreSQL"
-    # parquet_file = "$(table_name).parquet"
 
     # Check if the table exists in DuckDB
-    table_exists =
-    DBInterface.execute(
+    table_exists = DBInterface.execute(
         duckdb_conn,
         """SELECT name FROM sqlite_master WHERE type='table' AND name='$table_name';""",
     ) |> DataFrame
@@ -423,45 +438,93 @@ function export_table_to_postgres(
         error("Table $table_name does not exist in DuckDB")
     end
 
+    # Get row count
+    row_count = DBInterface.execute(duckdb_conn, "SELECT COUNT(*) FROM $table_name") |> DataFrame
+    row_count = row_count[1, 1]
+
+    method_to_use = export_method
+    if export_method == AutoSelect
+        method_to_use = row_count <= max_rows_for_dataframe ? UseDataFrame : UseParquet
+    end
+
+    if method_to_use == UseDataFrame
+        export_table_to_postgres_dataframe(duckdb_conn, pg_conn, table_name, pg_host, pg_user, pg_dbname)
+    else
+        export_table_to_postgres_parquet(duckdb_conn, pg_conn, table_name, parquet_file, pg_host, pg_user, pg_dbname)
+    end
+end
+
+function export_table_to_postgres_dataframe(
+    duckdb_conn::DuckDBConnection,
+    pg_conn::PostgreSQLConnection,
+    table_name::String,
+    pg_host::String,
+    pg_user::String,
+    pg_dbname::String
+)
+    @info "Exporting table $table_name to PostgreSQL using DataFrames"
+
     try
+        # Read the entire table into a DataFrame
+        df = DBInterface.execute(duckdb_conn, "SELECT * FROM $table_name") |> DataFrame
+        @info "Loaded $table_name into DataFrame with $(nrow(df)) rows"
+
+        # Get the schema and create table
+        schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name") |> DataFrame
+        create_table_query = generate_create_table_query(table_name, schema)
+        create_or_replace_table(pg_conn, table_name, create_table_query)
+
+        # Insert data into PostgreSQL
+        columns = join(lowercase.(names(df)), ", ")
+        placeholders = join(["?" for _ in 1:ncol(df)], ", ")
+        insert_query = "INSERT INTO $table_name ($columns) VALUES ($placeholders)"
+
+        LibPQ.load!(
+            (col => df[!, col] for col in names(df)),
+            pg_conn,
+            "INSERT INTO $table_name ($columns) VALUES ($placeholders)"
+        )
+
+        @info "Inserted $(nrow(df)) rows into PostgreSQL table $table_name"
+
+    catch e
+        @error "Error exporting table $table_name using DataFrames" exception=(e, catch_backtrace())
+        rethrow(e)
+    end
+end
+
+function export_table_to_postgres_parquet(
+    duckdb_conn::DuckDBConnection,
+    pg_conn::PostgreSQLConnection,
+    table_name::String,
+    parquet_file::String,
+    pg_host::String,
+    pg_user::String,
+    pg_dbname::String
+)
+    @info "Exporting table $table_name to PostgreSQL using Parquet"
+
+    try
+        # Export to parquet
         DBInterface.execute(duckdb_conn, """COPY $table_name TO '$parquet_file';""")
         @info "Exported $table_name to parquet file"
 
+        # Get the schema and create table
         schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name") |> DataFrame
         create_table_query = generate_create_table_query(table_name, schema)
+        create_or_replace_table(pg_conn, table_name, create_table_query)
 
-        # Check if the table exists in PostgreSQL
-        table_exists_pg = LibPQ.execute(
-            pg_conn,
-            """
-            SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = '$table_name';
-            """,
-        ) |> DataFrame
-
-        if isempty(table_exists_pg)
-            # If the table doesn't exist, create it
-            LibPQ.execute(pg_conn, create_table_query)
-            @info "Created table $table_name in PostgreSQL"
-        else
-            # If the table exists, rename it as a backup
-            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
-            LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
-            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
-            LibPQ.execute(pg_conn, create_table_query)
-            @info "Created new table $table_name in PostgreSQL, old table is stored as $(table_name)_backup"
-        end
-
+        # Copy data from parquet to PostgreSQL
         setup_postgres_connection(duckdb_conn, pg_host, pg_user, pg_dbname)
         DBInterface.execute(
             duckdb_conn,
-            """COPY postgres_db.$table_name FROM '$parquet_file';""",
+            """COPY postgres_db.$table_name FROM '$parquet_file';"""
         )
         DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
         @info "Copied data from parquet file to PostgreSQL table $table_name"
 
     catch e
-        @error "Error exporting table $table_name" exception = (e, catch_backtrace())
+        @error "Error exporting table $table_name using Parquet" exception=(e, catch_backtrace())
         rethrow(e)
     finally
         if isfile(parquet_file)
@@ -470,6 +533,31 @@ function export_table_to_postgres(
         end
     end
 end
+
+function create_or_replace_table(pg_conn::PostgreSQLConnection, table_name::String, create_table_query::String)
+    # Check if the table exists in PostgreSQL
+    table_exists_pg = LibPQ.execute(
+        pg_conn,
+        """
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = '$table_name';
+        """
+    ) |> DataFrame
+
+    if isempty(table_exists_pg)
+        # If the table doesn't exist, create it
+        LibPQ.execute(pg_conn, create_table_query)
+        @info "Created table $table_name in PostgreSQL"
+    else
+        # If the table exists, rename it as a backup
+        LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
+        LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
+        LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
+        LibPQ.execute(pg_conn, create_table_query)
+        @info "Created new table $table_name in PostgreSQL, old table is stored as $(table_name)_backup"
+    end
+end
+
 
 """
     generate_create_table_query(table_name::String, schema::DataFrame)
