@@ -1,6 +1,7 @@
 using HTTP
 using JSON3
 using DataFrames
+using TimeSeries
 using Dates
 using DotEnv
 using DuckDB
