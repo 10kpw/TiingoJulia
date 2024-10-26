@@ -13,6 +13,7 @@ using Tables
 using ZipFile
 using Logging
 using LoggingExtras
+using TimeSeries
 
 # Logger configuration
 const CONSOLE_LOGGER = ConsoleLogger(stderr, Logging.Info)
