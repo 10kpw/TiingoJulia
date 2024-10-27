@@ -9,11 +9,11 @@ using DBInterface
 using ZipFile
 
 """
-    fetch_daily_fundamental(ticker::String; api_key=get_api_key(), base_url="https://api.tiingo.com/tiingo/fundamentals")
+    get_daily_fundamental(ticker::String; api_key=get_api_key(), base_url="https://api.tiingo.com/tiingo/fundamentals")
 
-Fetch daily fundamental data for a given ticker from Tiingo API.
+Get daily fundamental data for a given ticker from Tiingo API.
 """
-function fetch_daily_fundamental(
+function get_daily_fundamental(
     ticker::String;
     api_key::String = get_api_key(),
     base_url::String = "https://api.tiingo.com/tiingo/fundamentals",

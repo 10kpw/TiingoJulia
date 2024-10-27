@@ -33,11 +33,11 @@ function get_api_key()::String
 end
 
 """
-    fetch_ticker_data(ticker::String; start_date=nothing, end_date=nothing, api_key=get_api_key(), base_url="https://api.tiingo.com/tiingo/daily")
+    get_ticker_data(ticker::String; start_date=nothing, end_date=nothing, api_key=get_api_key(), base_url="https://api.tiingo.com/tiingo/daily")
 
-Fetch historical data for a given ticker from Tiingo API.
+Get historical data for a given ticker from Tiingo API.
 """
-function fetch_ticker_data(
+function get_ticker_data(
     ticker::String;
     start_date::Union{Date,String,Nothing} = nothing,
     end_date::Union{Date,String,Nothing} = nothing,

@@ -182,7 +182,7 @@ end
 Add historical data for a single ticker.
 """
 function add_historical_data(conn::DuckDBConnection, ticker::String, api_key::String = get_api_key())
-    data = fetch_ticker_data(ticker, api_key=api_key)
+    data = get_ticker_data(ticker, api_key=api_key)
     upsert_stock_data(conn, data, ticker)
     @info "Added historical data for $ticker"
 end
@@ -237,7 +237,7 @@ function update_historical(
 
         if Date(start_date) <= end_date
             println("$i : $symbol : $start_date ~ $end_date")
-            ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
+            ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
             upsert_stock_data(conn, ticker_data, symbol)
             push!(updated_tickers, symbol)
         else
@@ -284,7 +284,7 @@ function update_splitted_ticker(
         end
         start_date = tickers[tickers.ticker .== symbol, :start_date][1]
         @info "$i: Updating split ticker $symbol from $start_date to $end_date"
-        ticker_data = fetch_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
+        ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
         upsert_stock_data(conn, ticker_data, symbol)
     end
     @info "Updated split tickers"
