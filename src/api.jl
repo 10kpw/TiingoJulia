@@ -1,6 +1,7 @@
 using HTTP
 using JSON3
 using DataFrames
+using TimeSeries
 using Dates
 using DotEnv
 using DuckDB
@@ -32,11 +33,11 @@ function get_api_key()::String
 end
 
 """
-    fetch_ticker_data(ticker::String; start_date=nothing, end_date=nothing, api_key=get_api_key(), base_url="https://api.tiingo.com/tiingo/daily")
+    get_ticker_data(ticker::String; start_date=nothing, end_date=nothing, api_key=get_api_key(), base_url="https://api.tiingo.com/tiingo/daily")
 
-Fetch historical data for a given ticker from Tiingo API.
+Get historical data for a given ticker from Tiingo API.
 """
-function fetch_ticker_data(
+function get_ticker_data(
     ticker::String;
     start_date::Union{Date,String,Nothing} = nothing,
     end_date::Union{Date,String,Nothing} = nothing,
@@ -94,15 +95,15 @@ end
 
 Download and process the latest tickers from Tiingo.
 """
-function download_latest_tickers(
-    tickers_url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip";
-    duckdb_path::String = "tiingo_historical_data.duckdb",
-    zip_file_path::String = "supported_tickers.zip"
+function download_tickers_duckdb(
+    conn_duckdb::DBInterface.Connection;
+    tickers_url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
+    zip_file_path::String = "supported_tickers.zip",
+    csv_file::String = "supported_tickers.csv",
 )
     try
-        download_and_unzip(tickers_url, zip_file_path)
-        process_tickers_csv(duckdb_path)
-        # cleanup_files(zip_file_path)
+        download_latest_tickers(tickers_url, zip_file_path)
+        process_tickers_csv(conn_duckdb, csv_file)
     catch e
         error("Error in download_latest_tickers: $(e)")
     end
@@ -113,7 +114,10 @@ end
 
 Helper function to download and unzip a file.
 """
-function download_and_unzip(url::String, zip_file_path::String)
+function download_latest_tickers(
+    url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
+    zip_file_path::String = "supported_tickers.zip"
+)
     HTTP.download(url, zip_file_path)
     r = ZipFile.Reader(zip_file_path)
     for f in r.files
@@ -121,27 +125,30 @@ function download_and_unzip(url::String, zip_file_path::String)
             write(io, read(f))
         end
     end
+    @info "Unzipped: supported_tickers.csv"
     close(r)
 end
 
 """
-    process_tickers_csv(duckdb_path::String)
+    process_tickers_csv(
+        conn::DBInterface.Connection,
+        csv_file::String="supported_tickers.csv"
+    )
 
 Helper function to process the tickers CSV file and insert into DuckDB.
 """
-function process_tickers_csv(duckdb_path::String)
-    conn = DBInterface.connect(DuckDB.DB, duckdb_path)
+function process_tickers_csv(
+    conn::DBInterface.Connection,
+    csv_file::String
+)
     try
         DBInterface.execute(conn, """
         CREATE OR REPLACE TABLE us_tickers AS
-        SELECT * FROM read_csv("supported_tickers.csv")
+        SELECT * FROM read_csv($csv_file)
         """)
-        @info "Downloaded and processed the latest tickers from Tiingo"
+        @info "Update us_tickers in DuckDB with the csv"
     catch e
-        DBInterface.execute(conn, "ROLLBACK;")
         rethrow(e)
-    finally
-        DBInterface.close(conn)
     end
 end
 
@@ -167,13 +174,9 @@ end
 Generate a filtered list of US tickers.
 """
 function generate_filtered_tickers(
-    duckdb_path::String = "tiingo_historical_data.duckdb"
+    conn::DBInterface.Connection
 )
-    conn = nothing
     try
-        # Connect to the duckdb database
-        conn = DBInterface.connect(DuckDB.DB, duckdb_path)
-
         # Check if us_tickers table exists and has data
         result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers")
         us_tickers_count = DBInterface.fetch(result) |> first |> only
@@ -182,15 +185,12 @@ function generate_filtered_tickers(
             error("us_tickers table is empty or does not exist")
         end
 
-        # Drop the existing table if it exists
-        DBInterface.execute(conn, "DROP TABLE IF EXISTS us_tickers_filtered")
-
         # Create and populate the filtered table
         DBInterface.execute(conn, """
-        CREATE TABLE us_tickers_filtered AS
+        CREATE OR REPLACE TABLE us_tickers_filtered AS
         SELECT * FROM us_tickers
          WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-           AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock')
+           AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
            AND assetType IN ('Stock', 'ETF')
            AND ticker NOT LIKE '%/%'
         """)
@@ -211,9 +211,6 @@ function generate_filtered_tickers(
     catch e
         @error "Error in generate_filtered_tickers: $(e)"
         rethrow(e)
-    finally
-        if conn !== nothing
-            DBInterface.close(conn)
-        end
     end
+
 end

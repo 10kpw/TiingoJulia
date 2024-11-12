@@ -7,7 +7,7 @@ using DBInterface
     @test isa(get_api_key(), String)
     @test !isempty(get_api_key())
 
-    conn = connect_db()
+    conn = connect_duckdb()
     @test isa(conn, DBInterface.Connection)
 
     # Add some dummy data to us_tickers_filtered
@@ -21,11 +21,11 @@ using DBInterface
     @test !isempty(tickers_stock)
 
     # Comment out this test for now, as it requires API access
-    # data = fetch_ticker_data("AAPL", startDate="2023-01-01", endDate="2023-01-31")
+    # data = get_ticker_data("AAPL", startDate="2023-01-01", endDate="2023-01-31")
     # @test isa(data, DataFrame)
     # @test !isempty(data)
 
-    close_db(conn)
+    close_duckdb(conn)
 end
 
 println("All tests completed successfully!")
