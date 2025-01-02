@@ -54,14 +54,13 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
             @info "Created backup of potentially corrupted database at $backup_path"
         end
 
-        # Create config object
-        config = DuckDB.Config()
-        config.access_mode = "READ_WRITE"
-        config.memory_limit = "4GB"
-        config.threads = "4"
+        # Connect without config first (using default settings)
+        conn = DBInterface.connect(DuckDB.DB, path)
 
-        # Connect with config
-        conn = DBInterface.connect(DuckDB.DB, path, config)
+        # Set configuration via SQL commands
+        DBInterface.execute(conn, "SET memory_limit='4GB'")
+        DBInterface.execute(conn, "SET threads=4")
+
         create_tables(conn)
         return conn
     catch e
