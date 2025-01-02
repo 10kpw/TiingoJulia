@@ -106,6 +106,7 @@ function download_tickers_duckdb(
     try
         download_latest_tickers(tickers_url, zip_file_path)
         process_tickers_csv(conn_duckdb, csv_file)
+        close_duckdb(conn_duckdb)
         generate_filtered_tickers(conn_duckdb)
     catch e
         error("Error in download_latest_tickers: $(e)")
