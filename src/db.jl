@@ -47,7 +47,21 @@ Connect to the DuckDB database and create necessary tables if they don't exist.
 """
 function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
-        conn = DBInterface.connect(DuckDB.DB, path)
+        # If the file exists and might be corrupted, try to backup and create new
+        if isfile(path)
+            backup_path = path * ".backup_$(Dates.format(now(), "yyyymmdd_HHMMSS"))"
+            mv(path, backup_path)
+            @info "Created backup of potentially corrupted database at $backup_path"
+        end
+
+        conn = DBInterface.connect(DuckDB.DB, path;
+            config=Dict(
+                "access_mode" => "READ_WRITE",
+                "allow_concurrent_access" => false,
+                "memory_limit" => "4GB",  # Adjust based on your system
+                "threads" => "4"          # Adjust based on your CPU
+            )
+        )
         create_tables(conn)
         return conn
     catch e
