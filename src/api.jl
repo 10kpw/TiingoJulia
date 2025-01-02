@@ -91,7 +91,9 @@ function fetch_api_data(url::String, query::Union{Dict,Nothing}, headers::Dict)
 end
 
 """
-    download_latest_tickers(tickers_url::String="https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip", duckdb_path::String="tiingo_historical_data.duckdb", zip_file_path::String="supported_tickers.zip")
+    download_tickers_duckdb(
+    tickers_url::String="https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
+    duckdb_path::String="tiingo_historical_data.duckdb", zip_file_path::String="supported_tickers.zip")
 
 Download and process the latest tickers from Tiingo.
 """
@@ -104,6 +106,7 @@ function download_tickers_duckdb(
     try
         download_latest_tickers(tickers_url, zip_file_path)
         process_tickers_csv(conn_duckdb, csv_file)
+        generate_filtered_tickers(conn_duckdb)
     catch e
         error("Error in download_latest_tickers: $(e)")
     end
@@ -146,7 +149,7 @@ function process_tickers_csv(
         CREATE OR REPLACE TABLE us_tickers AS
         SELECT * FROM read_csv($csv_file)
         """)
-        @info "Update us_tickers in DuckDB with the csv"
+        @info "Update us_tickers in DuckDB with the CSV"
     catch e
         rethrow(e)
     end

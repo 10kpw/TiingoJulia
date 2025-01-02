@@ -104,7 +104,7 @@ function create_tables(conn::DuckDBConnection)
     for (table_name, query) in tables
         try
             DBInterface.execute(conn, query)
-            @info "Created table: $table_name"
+            @info "Created table if not exists: $table_name"
         catch e
             @error "Failed to create table: $table_name" exception=(e, catch_backtrace())
         end
@@ -150,7 +150,7 @@ function upsert_stock_data(
     upsert_stmt = """
     INSERT INTO historical_data (ticker, date, close, high, low, open, volume, adjClose, adjHigh, adjLow, adjOpen, adjVolume, divCash, splitFactor)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (ticker, date) DO UPDATE SET
+ON CONFLICT (ticker, date) DO UPDATE SET
         close = EXCLUDED.close,
         high = EXCLUDED.high,
         low = EXCLUDED.low,
