@@ -194,10 +194,19 @@ end
 
 Add historical data for a single ticker.
 """
-function add_historical_data(conn::DuckDBConnection, ticker::String, api_key::String = get_api_key())
-    data = get_ticker_data(ticker, api_key=api_key)
-    upsert_stock_data(conn, data, ticker)
-    @info "Added historical data for $ticker"
+function add_historical_data(
+    conn::DuckDBConnection,
+    ticker::String,
+    api_key::String = get_api_key()
+)
+    try
+        data = get_ticker_data(ticker, api_key=api_key)
+        upsert_stock_data(conn, data, ticker)
+        @info "Added historical data for $ticker"
+    catch e
+        @error "Failed to add historical data for $ticker" exception=e
+        rethrow(e)
+    end
 end
 
 """
@@ -220,11 +229,18 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
+    # Get end_date with proper fallback
     end_date = try
-        maximum(skipmissing(tickers.end_date))
+        if :end_date in propertynames(tickers)
+            dates = skipmissing(tickers.end_date)
+            isempty(dates) ? Date(now()) : maximum(dates)
+        else
+            Date(now())
+        end
     catch
         Date(now())
     end
+
     missing_tickers = String[]
     updated_tickers = String[]
 
@@ -238,27 +254,40 @@ function update_historical(
         ORDER BY 1;
         """) |> DataFrame
 
-        if isempty(hist_data.latest_date)
+        if isempty(hist_data.latest_date) || ismissing(hist_data.latest_date[1])
             push!(missing_tickers, symbol)
             if add_missing
                 @info "Adding missing ticker: $symbol"
-                add_historical_data(conn, symbol, api_key)
-                push!(updated_tickers, symbol)
+                try
+                    add_historical_data(conn, symbol, api_key)
+                    push!(updated_tickers, symbol)
+                catch e
+                    @warn "Failed to add historical data for $symbol" exception=e
+                end
             else
                 @info "Skipping missing ticker: $symbol"
             end
             continue
         end
 
-        start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
+        start_date = hist_data.latest_date[1]
 
-        if Date(start_date) <= end_date
-            println("$i : $symbol : $start_date ~ $end_date")
-            ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
-            upsert_stock_data(conn, ticker_data, symbol)
-            push!(updated_tickers, symbol)
+        if start_date <= end_date
+            @info "$i : $symbol : $start_date ~ $end_date"
+            try
+                ticker_data = get_ticker_data(
+                    symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    api_key=api_key
+                )
+                upsert_stock_data(conn, ticker_data, symbol)
+                push!(updated_tickers, symbol)
+            catch e
+                @warn "Failed to update $symbol" exception=e
+            end
         else
-            println("$i : $symbol has the latest data")
+            @info "$i : $symbol has the latest data"
         end
     end
 

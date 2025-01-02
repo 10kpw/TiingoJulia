@@ -39,18 +39,35 @@ Get historical data for a given ticker from Tiingo API.
 """
 function get_ticker_data(
     ticker::String;
-    start_date::Union{Date,String,Nothing} = nothing,
-    end_date::Union{Date,String,Nothing} = nothing,
+    start_date::Union{String,Date,Nothing} = nothing,
+    end_date::Union{String,Date,Nothing} = nothing,
     api_key::String = get_api_key(),
     base_url::String = "https://api.tiingo.com/tiingo/daily"
 )::DataFrame
+    # Set default dates if none provided
+    end_date = isnothing(end_date) ? Date(now()) : Date(end_date)
+    start_date = isnothing(start_date) ? end_date - Year(5) : Date(start_date)
+
+    # Ensure dates are formatted correctly for the API
+    start_date_str = Dates.format(start_date, "yyyy-mm-dd")
+    end_date_str = Dates.format(end_date, "yyyy-mm-dd")
+
     headers = Dict("Authorization" => "Token $api_key")
 
-    start_date, end_date = get_date_range(ticker, start_date, end_date, headers, base_url)
+    # Get metadata to verify date range
+    meta_url = "$base_url/$ticker"
+    meta_data = fetch_api_data(meta_url, nothing, headers)
 
+    # Adjust dates based on available data
+    end_date = min(Date(end_date_str), Date(meta_data.endDate))
+    start_date = max(Date(start_date_str), Date(meta_data.startDate))
+
+    # Fetch price data
     url = "$base_url/$ticker/prices"
-    query = Dict("startDate" => Dates.format(Date(start_date), "yyyy-mm-dd"),
-                 "endDate" => Dates.format(Date(end_date), "yyyy-mm-dd"))
+    query = Dict(
+        "startDate" => Dates.format(start_date, "yyyy-mm-dd"),
+        "endDate" => Dates.format(end_date, "yyyy-mm-dd")
+    )
 
     data = fetch_api_data(url, query, headers)
     return DataFrame(data)
@@ -76,19 +93,40 @@ end
 
 Helper function to fetch data from the API.
 """
-function fetch_api_data(url::String, query::Union{Dict,Nothing}, headers::Dict)
-    try
-        response = isnothing(query) ? HTTP.get(url, headers=headers) : HTTP.get(url, query=query, headers=headers)
-        @assert response.status == 200 "Failed to fetch data from $url"
+function fetch_api_data(
+    url::String,
+    query::Union{Dict,Nothing},
+    headers::Dict;
+    max_retries::Int = 3,
+    retry_delay::Int = 2
+)
+    last_error = nothing
 
-        data = JSON3.read(String(response.body))
-        @assert !isempty(data) "No data returned from $url"
+    for attempt in 1:max_retries
+        try
+            response = isnothing(query) ?
+                HTTP.get(url, headers=headers) :
+                HTTP.get(url, query=query, headers=headers)
 
-        return data
-    catch e
-        error("Error fetching data from $url: $(e)")
+            @assert response.status == 200 "Failed to fetch data from $url: $(String(response.body))"
+
+            data = JSON3.read(String(response.body))
+            @assert !isempty(data) "No data returned from $url"
+
+            return data
+        catch e
+            last_error = e
+            @warn "API request attempt $attempt failed" exception=e
+
+            if attempt < max_retries
+                sleep(retry_delay * 2^(attempt - 1))  # Exponential backoff
+            end
+        end
     end
+
+    error("Failed to fetch data after $max_retries attempts: $last_error")
 end
+
 
 """
     download_tickers_duckdb(
@@ -98,16 +136,18 @@ end
 Download and process the latest tickers from Tiingo.
 """
 function download_tickers_duckdb(
-    conn_duckdb::DBInterface.Connection;
+    conn::DBInterface.Connection;
     tickers_url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
     zip_file_path::String = "supported_tickers.zip",
-    csv_file::String = "supported_tickers.csv",
+    csv_file::String = "supported_tickers.csv"
 )
     try
         download_latest_tickers(tickers_url, zip_file_path)
-        process_tickers_csv(conn_duckdb, csv_file)
+        process_tickers_csv(conn, csv_file)
     catch e
-        error("Error in download_latest_tickers: $(e)")
+        error("Error in download_tickers_duckdb: $e")
+    finally
+        cleanup_files(zip_file_path)
     end
 end
 
@@ -127,8 +167,8 @@ function download_latest_tickers(
             write(io, read(f))
         end
     end
-    @info "Unzipped: supported_tickers.csv"
     close(r)
+    @info "Downloaded and unzipped: supported_tickers.csv"
 end
 
 """
@@ -163,9 +203,7 @@ function cleanup_files(zip_file_path::String)
     for file in [zip_file_path, "supported_tickers.csv"]
         if isfile(file)
             rm(file)
-            @info "File '$file' has been deleted."
-        else
-            @warn "File '$file' does not exist."
+            @info "Cleaned up temporary file: $file"
         end
     end
 end
