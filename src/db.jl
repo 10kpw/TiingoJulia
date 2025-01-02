@@ -129,7 +129,7 @@ function update_us_tickers(conn::DuckDBConnection, csv_file::String = DBConstant
     SELECT * FROM read_csv('$csv_file')
     """
     try
-        DBInterface.execute(conn.conn, query)
+        DBInterface.execute(conn, query)
         @info "Updated us_tickers table from file: $csv_file"
     catch e
         @error "Failed to update us_tickers table" exception=(e, catch_backtrace())
@@ -207,7 +207,11 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
-    end_date = maximum(skipmissing(tickers.end_date))
+    end_date = try
+        maximum(skipmissing(tickers.end_date))
+    catch
+        Date(now())
+    end
     missing_tickers = String[]
     updated_tickers = String[]
 
@@ -502,9 +506,10 @@ function export_table_to_postgres_parquet(
         @info "Exported $table_name to parquet file"
 
         # Get the schema and create table
-        schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name") |> DataFrame
-        create_table_query = generate_create_table_query(table_name, schema)
-        create_or_replace_table(pg_conn, table_name, create_table_query)
+        table_name_lower = lowercase(table_name)
+        schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name_lower") |> DataFrame
+        create_table_query = generate_create_table_query(table_name_lower, schema)
+        create_or_replace_table(pg_conn, table_name_lower, create_table_query)
 
         # Copy data from parquet to PostgreSQL
         setup_postgres_connection(duckdb_conn, pg_host, pg_user, pg_dbname)
@@ -514,7 +519,6 @@ function export_table_to_postgres_parquet(
         )
         DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
         @info "Copied data from parquet file to PostgreSQL table $table_name"
-
     catch e
         @error "Error exporting table $table_name using Parquet" exception=(e, catch_backtrace())
         rethrow(e)
@@ -522,6 +526,10 @@ function export_table_to_postgres_parquet(
         if isfile(parquet_file)
             rm(parquet_file)
             @info "Removed temporary parquet file for $table_name"
+        end
+        try
+            DBInterface.execute(duckb_conn, "DETACH postgres_db;")
+        catch
         end
     end
 end
