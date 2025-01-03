@@ -141,14 +141,45 @@ function download_tickers_duckdb(
     zip_file_path::String = "supported_tickers.zip",
     csv_file::String = "supported_tickers.csv"
 )
-    try
-        download_latest_tickers(tickers_url, zip_file_path)
-        process_tickers_csv(conn, csv_file)
-    catch e
-        error("Error in download_tickers_duckdb: $e")
-    finally
-        cleanup_files(zip_file_path)
+try
+    # Step 1: Download and unzip
+    @info "Starting ticker download and processing..."
+    download_latest_tickers(tickers_url, zip_file_path)
+
+    # Step 2: Process CSV into us_tickers
+    process_tickers_csv(conn, csv_file)
+
+    # Step 3: Generate filtered tickers
+    @info "Generating filtered tickers table..."
+    DBInterface.execute(conn, """
+    CREATE OR REPLACE TABLE us_tickers_filtered AS
+    SELECT * FROM us_tickers
+    WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
+      AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
+      AND assetType IN ('Stock', 'ETF')
+      AND ticker NOT LIKE '%/%'
+    """)
+
+    # Verify the tables were created and have rows
+    result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers") |> DataFrame
+    us_tickers_count = result[1, 1]
+
+    result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered") |> DataFrame
+    filtered_count = result[1, 1]
+
+    @info "Ticker processing completed" original_count=us_tickers_count filtered_count=filtered_count
+
+    if filtered_count == 0
+        @warn "us_tickers_filtered table was created but contains no rows"
     end
+
+catch e
+    @error "Error in download_tickers_duckdb" exception=(e, catch_backtrace())
+    rethrow(e)
+finally
+    # Step 4: Clean up temporary files
+    cleanup_files(zip_file_path)
+end
 end
 
 """
