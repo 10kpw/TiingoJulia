@@ -577,10 +577,10 @@ function export_table_to_postgres_parquet(
         @error "Error exporting table $table_name using Parquet" exception=(e, catch_backtrace())
         rethrow(e)
     finally
-        if isfile(parquet_file)
-            rm(parquet_file)
-            @info "Removed temporary parquet file for $table_name"
-        end
+        # if isfile(parquet_file)
+        #     rm(parquet_file)
+        #     @info "Removed temporary parquet file for $table_name"
+        # end
         try
             DBInterface.execute(duckb_conn, "DETACH postgres_db;")
         catch
