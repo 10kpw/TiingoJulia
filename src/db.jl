@@ -47,15 +47,27 @@ Connect to the DuckDB database and create necessary tables if they don't exist.
 """
 function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
-        # If the file exists and might be corrupted, try to backup and create new
-        if isfile(path)
+        # First try to connect to existing database
+        conn = DBInterface.connect(DuckDB.DB, path)
+
+        # Test if database is accessible
+        try
+            DBInterface.execute(conn, "SELECT 1")
+            @info "Successfully connected to existing database at $path"
+            return conn
+        catch e
+            # If we can't execute a simple query, database might be corrupted
+            @warn "Database might be corrupted, creating backup..." exception=e
+            DuckDB.close(conn)
+
+            # Create backup and new database
             backup_path = path * ".backup_$(Dates.format(now(), "yyyymmdd_HHMMSS"))"
             mv(path, backup_path)
             @info "Created backup of potentially corrupted database at $backup_path"
-        end
 
-        # Connect without config first (using default settings)
-        conn = DBInterface.connect(DuckDB.DB, path)
+            # Try connecting to new database
+            conn = DBInterface.connect(DuckDB.DB, path)
+        end
 
         # Set configuration via SQL commands
         DBInterface.execute(conn, "SET memory_limit='4GB'")
