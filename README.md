@@ -1,16 +1,12 @@
 # TiingoJulia
 
-[![Stable Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://10kpw.github.io/TiingoJulia.jl/stable)
-[![In development documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://10kpw.github.io/TiingoJulia.jl/dev)
-[![Build Status](https://github.com/10kpw/TiingoJulia.jl/workflows/Test/badge.svg)](https://github.com/10kpw/TiingoJulia.jl/actions)
-[![Test workflow status](https://github.com/10kpw/TiingoJulia.jl/actions/workflows/Test.yml/badge.svg?branch=main)](https://github.com/10kpw/TiingoJulia.jl/actions/workflows/Test.yml?query=branch%3Amain)
-[![Lint workflow Status](https://github.com/10kpw/TiingoJulia.jl/actions/workflows/Lint.yml/badge.svg?branch=main)](https://github.com/10kpw/TiingoJulia.jl/actions/workflows/Lint.yml?query=branch%3Amain)
-[![Docs workflow Status](https://github.com/10kpw/TiingoJulia.jl/actions/workflows/Docs.yml/badge.svg?branch=main)](https://github.com/10kpw/TiingoJulia.jl/actions/workflows/Docs.yml?query=branch%3Amain)
+<!-- For private repos, use shields.io with authentication -->
+[![Tests](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia.jl/Test.yml?branch=main&label=Tests)](https://github.com/10kpw/TiingoJulia.jl/actions)
+[![Documentation](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia.jl/Docs.yml?branch=main&label=Docs)](https://10kpw.github.io/TiingoJulia.jl/dev)
+[![Lint](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia.jl/Lint.yml?branch=main&label=Lint)](https://github.com/10kpw/TiingoJulia.jl/actions)
 
-[![Coverage](https://codecov.io/gh/10kpw/TiingoJulia.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/10kpw/TiingoJulia.jl)
-[![DOI](https://zenodo.org/badge/DOI/FIXME)](https://doi.org/FIXME)
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
-[![All Contributors](https://img.shields.io/github/all-contributors/10kpw/TiingoJulia.jl?labelColor=5e1ec7&color=c0ffee&style=flat-square)](#contributors)
+<!-- Add note about private repository -->
+> **Note**: This is a private repository. Access to links and badges requires appropriate permissions.
 
 ## How to Cite
 
