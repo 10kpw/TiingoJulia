@@ -41,43 +41,120 @@ function setup_logging()
 end
 
 """
+    verify_duckdb_integrity(path::String)
+
+Verify if a DuckDB database is accessible and contains expected tables.
+Returns (is_valid::Bool, error_message::Union{String,Nothing})
+"""
+function verify_duckdb_integrity(path::String)
+    if !isfile(path)
+        return false, "Database file does not exist"
+    end
+
+    try
+        conn = DBInterface.connect(DuckDB.DB, path)
+        try
+            # Check if we can execute basic queries
+            DBInterface.execute(conn, "SELECT 1")
+
+            # Check if expected tables exist
+            tables = DBInterface.execute(conn, """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_name IN ('us_tickers', 'us_tickers_filtered', 'historical_data')
+            """) |> DataFrame
+
+            if nrow(tables) == 0
+                return false, "No expected tables found in database"
+            end
+
+            return true, nothing
+        finally
+            DuckDB.close(conn)
+        end
+    catch e
+        return false, "Database verification failed: $e"
+    end
+end
+
+
+"""
     connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)
 
-Connect to the DuckDB database and create necessary tables if they don't exist.
+Connect to DuckDB with improved error handling and access mode settings.
 """
 function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
-        # First try to connect to existing database
-        conn = DBInterface.connect(DuckDB.DB, path)
+        # First try read-only connection to test file
+        @info "Attempting to connect to database at $path"
 
-        # Test if database is accessible
-        try
-            DBInterface.execute(conn, "SELECT 1")
-            @info "Successfully connected to existing database at $path"
-            return conn
-        catch e
-            # If we can't execute a simple query, database might be corrupted
-            @warn "Database might be corrupted, creating backup..." exception=e
-            DuckDB.close(conn)
-
-            # Create backup and new database
-            backup_path = path * ".backup_$(Dates.format(now(), "yyyymmdd_HHMMSS"))"
-            mv(path, backup_path)
-            @info "Created backup of potentially corrupted database at $backup_path"
-
-            # Try connecting to new database
-            conn = DBInterface.connect(DuckDB.DB, path)
+        if !isfile(path)
+            error("Database file does not exist at $path")
         end
 
-        # Set configuration via SQL commands
-        DBInterface.execute(conn, "SET memory_limit='4GB'")
-        DBInterface.execute(conn, "SET threads=4")
+        # Try to connect with read-only access first to test file
+        test_conn = DBInterface.execute(DuckDB.DB, """
+            ATTACH '$(path)' AS test_db (READ_ONLY);
+        """)
 
-        create_tables(conn)
+        # If we can read the file, detach and reconnect normally
+        DBInterface.execute(test_conn, "DETACH test_db;")
+        DuckDB.close(test_conn)
+
+        # Now connect normally
+        conn = DBInterface.connect(DuckDB.DB, path)
+
+        # Test if we can read tables
+        tables = DBInterface.execute(conn, """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'main';
+        """) |> DataFrame
+
+        @info "Found tables in database:" tables=tables.table_name
+
         return conn
     catch e
-        @error "Failed to connect to DuckDB database" exception=(e, catch_backtrace())
+        @error "Failed to connect to DuckDB database" exception=e path=path
+
+        if occursin("database file is corrupt", string(e))
+            @error "Database appears to be corrupted. Please check recent backups."
+            backups = sort(filter(f -> startswith(f, path * ".backup_"), readdir(dirname(path), join=true)), rev=true)
+            if !isempty(backups)
+                @info "Available backups:" backups
+            end
+        end
+
         throw(DatabaseConnectionError("Failed to connect to DuckDB: $e"))
+    end
+end
+
+"""
+    force_unlock_duckdb(path::String)
+
+Attempt to force unlock a potentially locked DuckDB database.
+WARNING: Only use this if you're sure no other process is using the database.
+"""
+function force_unlock_duckdb(path::String)
+    if !isfile(path)
+        error("Database file not found at $path")
+    end
+
+    # Create backup before attempting unlock
+    backup_path = path * ".before_unlock_$(Dates.format(now(), "yyyymmdd_HHMMSS"))"
+    cp(path, backup_path)
+    @info "Created safety backup at $backup_path"
+
+    try
+        # Try to create a new connection with force_unlock
+        conn = DBInterface.connect(DuckDB.DB, path)
+        DBInterface.execute(conn, "PRAGMA force_checkpoint;")
+        DuckDB.close(conn)
+        @info "Successfully unlocked database"
+        return true
+    catch e
+        @error "Failed to unlock database" exception=e
+        return false
     end
 end
 
