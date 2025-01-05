@@ -47,7 +47,20 @@ Connect to the DuckDB database and create necessary tables if they don't exist.
 """
 function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
+        # If the file exists and might be corrupted, try to backup and create new
+        if isfile(path)
+            backup_path = path * ".backup_$(Dates.format(now(), "yyyymmdd_HHMMSS"))"
+            mv(path, backup_path)
+            @info "Created backup of potentially corrupted database at $backup_path"
+        end
+
+        # Connect without config first (using default settings)
         conn = DBInterface.connect(DuckDB.DB, path)
+
+        # Set configuration via SQL commands
+        DBInterface.execute(conn, "SET memory_limit='4GB'")
+        DBInterface.execute(conn, "SET threads=4")
+
         create_tables(conn)
         return conn
     catch e
@@ -104,7 +117,7 @@ function create_tables(conn::DuckDBConnection)
     for (table_name, query) in tables
         try
             DBInterface.execute(conn, query)
-            @info "Created table: $table_name"
+            @info "Created table if not exists: $table_name"
         catch e
             @error "Failed to create table: $table_name" exception=(e, catch_backtrace())
         end
@@ -129,7 +142,7 @@ function update_us_tickers(conn::DuckDBConnection, csv_file::String = DBConstant
     SELECT * FROM read_csv('$csv_file')
     """
     try
-        DBInterface.execute(conn.conn, query)
+        DBInterface.execute(conn, query)
         @info "Updated us_tickers table from file: $csv_file"
     catch e
         @error "Failed to update us_tickers table" exception=(e, catch_backtrace())
@@ -150,7 +163,7 @@ function upsert_stock_data(
     upsert_stmt = """
     INSERT INTO historical_data (ticker, date, close, high, low, open, volume, adjClose, adjHigh, adjLow, adjOpen, adjVolume, divCash, splitFactor)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (ticker, date) DO UPDATE SET
+ON CONFLICT (ticker, date) DO UPDATE SET
         close = EXCLUDED.close,
         high = EXCLUDED.high,
         low = EXCLUDED.low,
@@ -181,10 +194,19 @@ end
 
 Add historical data for a single ticker.
 """
-function add_historical_data(conn::DuckDBConnection, ticker::String, api_key::String = get_api_key())
-    data = get_ticker_data(ticker, api_key=api_key)
-    upsert_stock_data(conn, data, ticker)
-    @info "Added historical data for $ticker"
+function add_historical_data(
+    conn::DuckDBConnection,
+    ticker::String,
+    api_key::String = get_api_key()
+)
+    try
+        data = get_ticker_data(ticker, api_key=api_key)
+        upsert_stock_data(conn, data, ticker)
+        @info "Added historical data for $ticker"
+    catch e
+        @error "Failed to add historical data for $ticker" exception=e
+        rethrow(e)
+    end
 end
 
 """
@@ -207,7 +229,18 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
-    end_date = maximum(skipmissing(tickers.end_date))
+    # Get end_date with proper fallback
+    end_date = try
+        if :end_date in propertynames(tickers)
+            dates = skipmissing(tickers.end_date)
+            isempty(dates) ? Date(now()) : maximum(dates)
+        else
+            Date(now())
+        end
+    catch
+        Date(now())
+    end
+
     missing_tickers = String[]
     updated_tickers = String[]
 
@@ -221,27 +254,40 @@ function update_historical(
         ORDER BY 1;
         """) |> DataFrame
 
-        if isempty(hist_data.latest_date)
+        if isempty(hist_data.latest_date) || ismissing(hist_data.latest_date[1])
             push!(missing_tickers, symbol)
             if add_missing
                 @info "Adding missing ticker: $symbol"
-                add_historical_data(conn, symbol, api_key)
-                push!(updated_tickers, symbol)
+                try
+                    add_historical_data(conn, symbol, api_key)
+                    push!(updated_tickers, symbol)
+                catch e
+                    @warn "Failed to add historical data for $symbol" exception=e
+                end
             else
                 @info "Skipping missing ticker: $symbol"
             end
             continue
         end
 
-        start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
+        start_date = hist_data.latest_date[1]
 
-        if Date(start_date) <= end_date
-            println("$i : $symbol : $start_date ~ $end_date")
-            ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
-            upsert_stock_data(conn, ticker_data, symbol)
-            push!(updated_tickers, symbol)
+        if start_date <= end_date
+            @info "$i : $symbol : $start_date ~ $end_date"
+            try
+                ticker_data = get_ticker_data(
+                    symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    api_key=api_key
+                )
+                upsert_stock_data(conn, ticker_data, symbol)
+                push!(updated_tickers, symbol)
+            catch e
+                @warn "Failed to update $symbol" exception=e
+            end
         else
-            println("$i : $symbol has the latest data")
+            @info "$i : $symbol has the latest data"
         end
     end
 
@@ -502,9 +548,10 @@ function export_table_to_postgres_parquet(
         @info "Exported $table_name to parquet file"
 
         # Get the schema and create table
-        schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name") |> DataFrame
-        create_table_query = generate_create_table_query(table_name, schema)
-        create_or_replace_table(pg_conn, table_name, create_table_query)
+        table_name_lower = lowercase(table_name)
+        schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name_lower") |> DataFrame
+        create_table_query = generate_create_table_query(table_name_lower, schema)
+        create_or_replace_table(pg_conn, table_name_lower, create_table_query)
 
         # Copy data from parquet to PostgreSQL
         setup_postgres_connection(duckdb_conn, pg_host, pg_user, pg_dbname)
@@ -514,7 +561,6 @@ function export_table_to_postgres_parquet(
         )
         DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
         @info "Copied data from parquet file to PostgreSQL table $table_name"
-
     catch e
         @error "Error exporting table $table_name using Parquet" exception=(e, catch_backtrace())
         rethrow(e)
@@ -522,6 +568,10 @@ function export_table_to_postgres_parquet(
         if isfile(parquet_file)
             rm(parquet_file)
             @info "Removed temporary parquet file for $table_name"
+        end
+        try
+            DBInterface.execute(duckb_conn, "DETACH postgres_db;")
+        catch
         end
     end
 end
