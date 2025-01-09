@@ -84,45 +84,39 @@ end
 Connect to the DuckDB database and create necessary tables if they don't exist.
 """
 function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
-    is_valid, error_msg = verify_duckdb_integrity(path)
-
-    if !is_valid
-        @warn "Database integrity check failed" error_msg
-
-        # Look for most recent valid backup
-        backup_pattern = path * ".backup_*"
-        backups = sort(filter(f -> startswith(f, path * ".backup_"), readdir(dirname(path), join=true)), rev=true)
-
-        if !isempty(backups)
-            for backup in backups
-                is_backup_valid, backup_error = verify_duckdb_integrity(backup)
-                if is_backup_valid
-                    @info "Found valid backup: $backup"
-                    cp(backup, path, force=true)
-                    @info "Restored from backup"
-                    break
-                end
-            end
-        end
-    end
-
     try
-        # Try to connect with specific configuration
+        # Attempt to connect to existing database
+        @info "Attempting to connect to existing DuckDB at path: $path"
         conn = DBInterface.connect(DuckDB.DB, path)
 
-        # Configure database settings
-        DBInterface.execute(conn, "SET memory_limit='4GB'")
-        DBInterface.execute(conn, "SET threads=4")
-
-        # Verify connection works
-        DBInterface.execute(conn, "SELECT 1")
-
-        @info "Successfully connected to database at $path"
+        # If successful, configure and return
+        @info "Successfully connected to existing database"
+        configure_database(conn)
         return conn
     catch e
-        @error "Failed to connect to DuckDB database" exception=e
-        throw(DatabaseConnectionError("Failed to connect to DuckDB: $e"))
+        @warn "Failed to connect to existing database: $e"
+
+        # If connection fails, attempt to create a new database
+        @info "Attempting to create a new database at path: $path"
+        try
+            conn = DBInterface.connect(DuckDB.DB, path; create=true)
+            @info "Successfully created and connected to new database"
+            configure_database(conn)
+            return conn
+        catch new_e
+            @error "Failed to create new database" exception=(new_e, catch_backtrace())
+            throw(DatabaseConnectionError("Failed to connect to or create DuckDB: $new_e"))
+        end
     end
+end
+
+function configure_database(conn::DuckDBConnection)
+    @info "Configuring database settings"
+    DBInterface.execute(conn, "SET memory_limit='4GB'")
+    DBInterface.execute(conn, "SET threads=4")
+
+    @info "Verifying connection"
+    DBInterface.execute(conn, "SELECT 1")
 end
 
 """
@@ -239,10 +233,10 @@ ON CONFLICT (ticker, date) DO UPDATE SET
             DBInterface.execute(conn, upsert_stmt, (ticker, row.date, row.close, row.high, row.low, row.open, row.volume, row.adjClose, row.adjHigh, row.adjLow, row.adjOpen, row.adjVolume, row.divCash, row.splitFactor))
             rows_updated += 1
         catch e
-            @error "Error upserting stock data for $ticker: $e"
+            @error "Error inserting stock data for $ticker: $e"
         end
     end
-    # @info "Upserted stock data for $ticker" rows_updated=rows_updated total_rows=nrow(data)
+    # @info "inserted stock data for $ticker" rows_updated=rows_updated total_rows=nrow(data)
 end
 
 """
@@ -626,7 +620,7 @@ function export_table_to_postgres_parquet(
         #     @info "Removed temporary parquet file for $table_name"
         # end
         try
-            DBInterface.execute(duckb_conn, "DETACH postgres_db;")
+            DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
         catch
         end
     end
