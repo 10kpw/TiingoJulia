@@ -77,31 +77,25 @@ function verify_duckdb_integrity(path::String)
     end
 end
 
-
 """
-    connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)
+    connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
 """
 function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
-        # Attempt to connect to existing database
-        @info "Attempting to connect to existing DuckDB at path: $path"
+        @info "Attempting to connect to DuckDB at path: $path"
         conn = DBInterface.connect(DuckDB.DB, path)
-
-        # If successful, configure and return
-        @info "Successfully connected to existing database"
         configure_database(conn)
         return conn
     catch e
         @warn "Failed to connect to existing database: $e"
 
-        # If connection fails, attempt to create a new database
         @info "Attempting to create a new database at path: $path"
         try
             conn = DBInterface.connect(DuckDB.DB, path; create=true)
-            @info "Successfully created and connected to new database"
             configure_database(conn)
+            create_tables(conn)
             return conn
         catch new_e
             @error "Failed to create new database" exception=(new_e, catch_backtrace())
@@ -110,6 +104,11 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
     end
 end
 
+"""
+    configure_database(conn::DuckDBConnection)
+
+Configure database settings and verify connection.
+"""
 function configure_database(conn::DuckDBConnection)
     @info "Configuring database settings"
     DBInterface.execute(conn, "SET memory_limit='4GB'")
@@ -117,6 +116,7 @@ function configure_database(conn::DuckDBConnection)
 
     @info "Verifying connection"
     DBInterface.execute(conn, "SELECT 1")
+    @info "Database configuration complete"
 end
 
 """
@@ -228,15 +228,21 @@ ON CONFLICT (ticker, date) DO UPDATE SET
         splitFactor = EXCLUDED.splitFactor
     """
     rows_updated = 0
-    for row in eachrow(data)
-        try
+    DBInterface.execute(conn, "BEGIN TRANSACTION")
+    try
+        for row in eachrow(data)
             DBInterface.execute(conn, upsert_stmt, (ticker, row.date, row.close, row.high, row.low, row.open, row.volume, row.adjClose, row.adjHigh, row.adjLow, row.adjOpen, row.adjVolume, row.divCash, row.splitFactor))
             rows_updated += 1
-        catch e
-            @error "Error inserting stock data for $ticker: $e"
         end
+        DBInterface.execute(conn, "COMMIT")
+    catch e
+        DBInterface.execute(conn, "ROLLBACK")
+        @error "Error upserting stock data for $ticker: $e"
+        rethrow(e)
     end
+
     # @info "inserted stock data for $ticker" rows_updated=rows_updated total_rows=nrow(data)
+    return rows_updated
 end
 
 """
@@ -256,6 +262,24 @@ function add_historical_data(
     catch e
         @error "Failed to add historical data for $ticker" exception=e
         rethrow(e)
+    end
+end
+
+"""
+    get_end_date(tickers::DataFrame)::Date
+
+Get the end date for historical data update.
+"""
+function get_end_date(tickers::DataFrame)::Date
+    try
+        if :end_date in propertynames(tickers)
+            dates = skipmissing(tickers.end_date)
+            isempty(dates) ? Date(now()) : maximum(dates)
+        else
+            Date(now())
+        end
+    catch
+        Date(now())
     end
 end
 
