@@ -34,6 +34,7 @@ export get_tickers_all, get_tickers_etf, get_tickers_stock
 export connect_postgres, close_postgres, export_to_postgres
 export list_tables
 export get_daily_fundamental
+export create_or_replace_table, create_tables
 
 
 end # module TiingoJulia
