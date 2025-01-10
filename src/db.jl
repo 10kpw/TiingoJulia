@@ -274,10 +274,18 @@ function add_historical_data(
 )
     try
         data = get_ticker_data(ticker, api_key=api_key)
-        upsert_stock_data(conn, data, ticker)
-        @info "Added historical data for $ticker"
+        @info "Retrieved data for $ticker" data_size=size(data)
+        if isempty(data)
+            @warn "No data retrieved for $ticker"
+            return
+        end
+        rows_updated = upsert_stock_data(conn, data, ticker)
+        @info "Added historical data for $ticker" rows_updated=rows_updated
     catch e
-        @error "Failed to add historical data for $ticker" exception=e
+        @error "Failed to add historical data for $ticker" exception=(e, catch_backtrace())
+        for (var, val) in pairs(data)
+            @info "Column $var" first_value=first(val) last_value=last(val) eltype=eltype(val)
+        end
         rethrow(e)
     end
 end
