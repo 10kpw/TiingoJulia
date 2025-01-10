@@ -201,96 +201,6 @@ function update_us_tickers(conn::DuckDBConnection, csv_file::String = DBConstant
 end
 
 """
-    upsert_stock_data(conn::DuckDBConnection, data::DataFrame, ticker::String)
-
-Upsert stock data into the historical_data table.
-"""
-function upsert_stock_data(
-    conn::DuckDBConnection,
-    data::DataFrame,
-    ticker::String
-)
-    upsert_stmt = """
-    INSERT INTO historical_data (ticker, date, close, high, low, open, volume, adjClose, adjHigh, adjLow, adjOpen, adjVolume, divCash, splitFactor)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (ticker, date) DO UPDATE SET
-        close = EXCLUDED.close,
-        high = EXCLUDED.high,
-        low = EXCLUDED.low,
-        open = EXCLUDED.open,
-        volume = EXCLUDED.volume,
-        adjClose = EXCLUDED.adjClose,
-        adjHigh = EXCLUDED.adjHigh,
-        adjLow = EXCLUDED.adjLow,
-        adjOpen = EXCLUDED.adjOpen,
-        adjVolume = EXCLUDED.adjVolume,
-        divCash = EXCLUDED.divCash,
-        splitFactor = EXCLUDED.splitFactor
-    """
-    rows_updated = 0
-    DBInterface.execute(conn, "BEGIN TRANSACTION")
-    try
-        for row in eachrow(data)
-            # Convert missing or nothing values to appropriate default values
-            values = (
-                ticker,
-                row.date,
-                ismissing(row.close) ? NaN : row.close,
-                ismissing(row.high) ? NaN : row.high,
-                ismissing(row.low) ? NaN : row.low,
-                ismissing(row.open) ? NaN : row.open,
-                ismissing(row.volume) ? 0 : row.volume,
-                ismissing(row.adjClose) ? NaN : row.adjClose,
-                ismissing(row.adjHigh) ? NaN : row.adjHigh,
-                ismissing(row.adjLow) ? NaN : row.adjLow,
-                ismissing(row.adjOpen) ? NaN : row.adjOpen,
-                ismissing(row.adjVolume) ? 0 : row.adjVolume,
-                ismissing(row.divCash) ? 0.0 : row.divCash,
-                ismissing(row.splitFactor) ? 1.0 : row.splitFactor
-            )
-            DBInterface.execute(conn, upsert_stmt, values)
-            rows_updated += 1
-        end
-        DBInterface.execute(conn, "COMMIT")
-    catch e
-        DBInterface.execute(conn, "ROLLBACK")
-        @error "Error upserting stock data for $ticker: $e"
-        rethrow(e)
-    end
-
-    # @info "inserted stock data for $ticker" rows_updated=rows_updated total_rows=nrow(data)
-    return rows_updated
-end
-
-"""
-    add_historical_data(conn::DuckDBConnection, ticker::String, api_key::String = get_api_key())
-
-Add historical data for a single ticker.
-"""
-function add_historical_data(
-    conn::DuckDBConnection,
-    ticker::String,
-    api_key::String = get_api_key()
-)
-    try
-        data = get_ticker_data(ticker, api_key=api_key)
-        @info "Retrieved data for $ticker" data_size=size(data)
-        if isempty(data)
-            @warn "No data retrieved for $ticker"
-            return
-        end
-        rows_updated = upsert_stock_data(conn, data, ticker)
-        @info "Added historical data for $ticker" rows_updated=rows_updated
-    catch e
-        @error "Failed to add historical data for $ticker" exception=(e, catch_backtrace())
-        for (var, val) in pairs(data)
-            @info "Column $var" first_value=first(val) last_value=last(val) eltype=eltype(val)
-        end
-        rethrow(e)
-    end
-end
-
-"""
     get_end_date(tickers::DataFrame)::Date
 
 Get the end date for historical data update.
@@ -327,42 +237,20 @@ function update_historical(
     tickers::DataFrame,
     api_key::String = get_api_key();
     add_missing::Bool = true
-)
+)::Tuple{Vector{String}, Vector{String}, Vector{String}}
+
     end_date = maximum(skipmissing(tickers.end_date))
     missing_tickers = String[]
     updated_tickers = String[]
+    error_tickers = String[]
 
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
-        hist_data = DBInterface.execute(conn, """
-        SELECT ticker, max(date) + 1 AS latest_date
-        FROM historical_data
-        WHERE ticker = '$symbol'
-        GROUP BY 1
-        ORDER BY 1;
-        """) |> DataFrame
-
-        if isempty(hist_data.latest_date)
-            push!(missing_tickers, symbol)
-            if add_missing
-                @info "Adding missing ticker: $symbol"
-                add_historical_data(conn, symbol, api_key)
-                push!(updated_tickers, symbol)
-            else
-                @info "Skipping missing ticker: $symbol"
-            end
-            continue
-        end
-
-        start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
-
-        if Date(start_date) <= end_date
-            println("$i : $symbol : $start_date ~ $end_date")
-            ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
-            upsert_stock_data(conn, ticker_data, symbol)
-            push!(updated_tickers, symbol)
-        else
-            println("$i : $symbol has the latest data")
+        try
+            process_ticker(conn, symbol, end_date, api_key, add_missing, i, missing_tickers, updated_tickers)
+        catch e
+            @warn "Error processing ticker $symbol: $e"
+            push!(error_tickers, symbol)
         end
     end
 
@@ -374,9 +262,181 @@ function update_historical(
         end
     end
 
-    @info "Historical data update completed" updated_count=length(updated_tickers) missing_count=length(missing_tickers)
+    log_update_results(missing_tickers, updated_tickers, error_tickers, add_missing)
+    return (updated_tickers, missing_tickers, error_tickers)
+end
 
-    return (updated_tickers, missing_tickers)
+function process_ticker(
+    conn::DuckDBConnection,
+    symbol::String,
+    end_date::Date,
+    api_key::String,
+    add_missing::Bool,
+    index::Int,
+    missing_tickers::Vector{String},
+    updated_tickers::Vector{String}
+)
+    hist_data = get_latest_date(conn, symbol)
+
+    if isempty(hist_data) || ismissing(hist_data[1, :latest_date])
+        handle_missing_ticker(conn, symbol, api_key, add_missing, missing_tickers, updated_tickers)
+    else
+        update_existing_ticker(conn, symbol, hist_data[1, :latest_date], end_date, api_key, index, updated_tickers)
+    end
+end
+
+function get_latest_date(conn::DuckDBConnection, symbol::String)::DataFrame
+    DBInterface.execute(conn, """
+    SELECT ticker, max(date) + 1 AS latest_date
+    FROM historical_data
+    WHERE ticker = ?
+    GROUP BY 1
+    ORDER BY 1;
+    """, [symbol]) |> DataFrame
+end
+
+function handle_missing_ticker(
+    conn::DuckDBConnection,
+    symbol::String,
+    api_key::String,
+    add_missing::Bool,
+    missing_tickers::Vector{String},
+    updated_tickers::Vector{String}
+)
+    push!(missing_tickers, symbol)
+    if add_missing
+        @info "Adding missing ticker: $symbol"
+        try
+            add_historical_data(conn, symbol, api_key)
+            push!(updated_tickers, symbol)
+        catch e
+            @warn "Failed to add historical data for $symbol: $e"
+        end
+    else
+        @info "Skipping missing ticker: $symbol"
+    end
+end
+
+function update_existing_ticker(
+    conn::DuckDBConnection,
+    symbol::String,
+    start_date::Date,
+    end_date::Date,
+    api_key::String,
+    index::Int,
+    updated_tickers::Vector{String}
+)
+    if start_date <= end_date
+        @info "$index : $symbol : $start_date ~ $end_date"
+        try
+            ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
+            if !isempty(ticker_data)
+                upsert_stock_data(conn, ticker_data, symbol)
+                push!(updated_tickers, symbol)
+            else
+                @warn "No data retrieved for $symbol"
+            end
+        catch e
+            @warn "Failed to update $symbol: $e"
+        end
+    else
+        @info "$index : $symbol has the latest data"
+    end
+end
+
+"""
+    add_historical_data(conn::DuckDBConnection, ticker::String, api_key::String = get_api_key())
+
+Add historical data for a single ticker.
+"""
+function add_historical_data(
+    conn::DuckDBConnection,
+    ticker::String,
+    api_key::String = get_api_key()
+)
+    data = get_ticker_data(ticker, api_key=api_key)
+    if isempty(data)
+        @warn "No data retrieved for $ticker"
+        return
+    end
+    upsert_stock_data(conn, data, ticker)
+    @info "Added historical data for $ticker"
+end
+
+"""
+    upsert_stock_data(conn::DuckDBConnection, data::DataFrame, ticker::String)
+
+Upsert stock data into the historical_data table.
+"""
+function upsert_stock_data(
+    conn::DuckDBConnection,
+    data::DataFrame,
+    ticker::String
+)
+    upsert_stmt = """
+    INSERT INTO historical_data (ticker, date, close, high, low, open, volume, adjClose, adjHigh, adjLow, adjOpen, adjVolume, divCash, splitFactor)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (ticker, date) DO UPDATE SET
+        close = EXCLUDED.close,
+        high = EXCLUDED.high,
+        low = EXCLUDED.low,
+        open = EXCLUDED.open,
+        volume = EXCLUDED.volume,
+        adjClose = EXCLUDED.adjClose,
+        adjHigh = EXCLUDED.adjHigh,
+        adjLow = EXCLUDED.adjLow,
+        adjOpen = EXCLUDED.adjOpen,
+        adjVolume = EXCLUDED.adjVolume,
+        divCash = EXCLUDED.divCash,
+        splitFactor = EXCLUDED.splitFactor
+    """
+    rows_updated = 0
+    DBInterface.execute(conn, "BEGIN TRANSACTION")
+    try
+        for row in eachrow(data)
+            values = (
+                ticker,
+                row.date,
+                coalesce(row.close, NaN),
+                coalesce(row.high, NaN),
+                coalesce(row.low, NaN),
+                coalesce(row.open, NaN),
+                coalesce(row.volume, 0),
+                coalesce(row.adjClose, NaN),
+                coalesce(row.adjHigh, NaN),
+                coalesce(row.adjLow, NaN),
+                coalesce(row.adjOpen, NaN),
+                coalesce(row.adjVolume, 0),
+                coalesce(row.divCash, 0.0),
+                coalesce(row.splitFactor, 1.0)
+            )
+            DBInterface.execute(conn, upsert_stmt, values)
+            rows_updated += 1
+        end
+        DBInterface.execute(conn, "COMMIT")
+    catch e
+        DBInterface.execute(conn, "ROLLBACK")
+        @error "Error upserting stock data for $ticker" exception=(e, catch_backtrace())
+        rethrow(e)
+    end
+
+    return rows_updated
+end
+
+function log_update_results(missing_tickers::Vector{String}, updated_tickers::Vector{String}, error_tickers::Vector{String}, add_missing::Bool)
+    if !isempty(missing_tickers)
+        if add_missing
+            @info "Attempted to add $(length(missing_tickers)) missing tickers to historical_data"
+        else
+            @warn "The following tickers are not in historical_data: $missing_tickers"
+        end
+    end
+
+    if !isempty(error_tickers)
+        @warn "The following tickers encountered errors during processing: $error_tickers"
+    end
+
+    @info "Historical data update completed" updated_count=length(updated_tickers) missing_count=length(missing_tickers) error_count=length(error_tickers)
 end
 
 """
