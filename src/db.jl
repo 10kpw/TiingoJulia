@@ -231,7 +231,24 @@ ON CONFLICT (ticker, date) DO UPDATE SET
     DBInterface.execute(conn, "BEGIN TRANSACTION")
     try
         for row in eachrow(data)
-            DBInterface.execute(conn, upsert_stmt, (ticker, row.date, row.close, row.high, row.low, row.open, row.volume, row.adjClose, row.adjHigh, row.adjLow, row.adjOpen, row.adjVolume, row.divCash, row.splitFactor))
+            # Convert missing or nothing values to appropriate default values
+            values = (
+                ticker,
+                row.date,
+                ismissing(row.close) ? NaN : row.close,
+                ismissing(row.high) ? NaN : row.high,
+                ismissing(row.low) ? NaN : row.low,
+                ismissing(row.open) ? NaN : row.open,
+                ismissing(row.volume) ? 0 : row.volume,
+                ismissing(row.adjClose) ? NaN : row.adjClose,
+                ismissing(row.adjHigh) ? NaN : row.adjHigh,
+                ismissing(row.adjLow) ? NaN : row.adjLow,
+                ismissing(row.adjOpen) ? NaN : row.adjOpen,
+                ismissing(row.adjVolume) ? 0 : row.adjVolume,
+                ismissing(row.divCash) ? 0.0 : row.divCash,
+                ismissing(row.splitFactor) ? 1.0 : row.splitFactor
+            )
+            DBInterface.execute(conn, upsert_stmt, values)
             rows_updated += 1
         end
         DBInterface.execute(conn, "COMMIT")
