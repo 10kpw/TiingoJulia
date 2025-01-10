@@ -303,18 +303,7 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
-    # Get end_date with proper fallback
-    end_date = try
-        if :end_date in propertynames(tickers)
-            dates = skipmissing(tickers.end_date)
-            isempty(dates) ? Date(now()) : maximum(dates)
-        else
-            Date(now())
-        end
-    catch
-        Date(now())
-    end
-
+    end_date = maximum(skipmissing(tickers.end_date))
     missing_tickers = String[]
     updated_tickers = String[]
 
@@ -328,40 +317,27 @@ function update_historical(
         ORDER BY 1;
         """) |> DataFrame
 
-        if isempty(hist_data.latest_date) || ismissing(hist_data.latest_date[1])
+        if isempty(hist_data.latest_date)
             push!(missing_tickers, symbol)
             if add_missing
                 @info "Adding missing ticker: $symbol"
-                try
-                    add_historical_data(conn, symbol, api_key)
-                    push!(updated_tickers, symbol)
-                catch e
-                    @warn "Failed to add historical data for $symbol" exception=e
-                end
+                add_historical_data(conn, symbol, api_key)
+                push!(updated_tickers, symbol)
             else
                 @info "Skipping missing ticker: $symbol"
             end
             continue
         end
 
-        start_date = hist_data.latest_date[1]
+        start_date = Dates.format(hist_data.latest_date[1], "yyyy-mm-dd")
 
-        if start_date <= end_date
-            @info "$i : $symbol : $start_date ~ $end_date"
-            try
-                ticker_data = get_ticker_data(
-                    symbol,
-                    start_date=start_date,
-                    end_date=end_date,
-                    api_key=api_key
-                )
-                upsert_stock_data(conn, ticker_data, symbol)
-                push!(updated_tickers, symbol)
-            catch e
-                @warn "Failed to update $symbol" exception=e
-            end
+        if Date(start_date) <= end_date
+            println("$i : $symbol : $start_date ~ $end_date")
+            ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
+            upsert_stock_data(conn, ticker_data, symbol)
+            push!(updated_tickers, symbol)
         else
-            @info "$i : $symbol has the latest data"
+            println("$i : $symbol has the latest data")
         end
     end
 
