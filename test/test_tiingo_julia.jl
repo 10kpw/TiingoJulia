@@ -20,11 +20,6 @@ using DBInterface
     @test isa(tickers_stock, DataFrame)
     @test !isempty(tickers_stock)
 
-    # Comment out this test for now, as it requires API access
-    # data = get_ticker_data("AAPL", startDate="2023-01-01", endDate="2023-01-31")
-    # @test isa(data, DataFrame)
-    # @test !isempty(data)
-
     close_duckdb(conn)
 end
 
