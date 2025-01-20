@@ -2,9 +2,11 @@
 CurrentModule = TiingoJulia
 ```
 
-# TiingoJulia
+# TiingoJulia.jl
 
-Documentation for [TiingoJulia](https://github.com/10kpw/TiingoJulia.jl).
+> **Note**: This is a private package. Access to the repository and documentation requires appropriate permissions.
+
+To request access, please contact the repository owners.
 
 ## Contributors
 
