@@ -44,6 +44,7 @@ function get_ticker_data(
     api_key::String = get_api_key(),
     base_url::String = "https://api.tiingo.com/tiingo/daily"
 )::DataFrame
+    @info "Starting API call for ticker: $ticker"
     # Set default dates if none provided
     end_date = isnothing(end_date) ? Date(now()) : Date(end_date)
     start_date = isnothing(start_date) ? end_date - Year(5) : Date(start_date)
@@ -55,6 +56,7 @@ function get_ticker_data(
     headers = Dict("Authorization" => "Token $api_key")
 
     # Get metadata to verify date range
+    @info "Fetching metadata for $ticker"
     meta_url = "$base_url/$ticker"
     meta_data = fetch_api_data(meta_url, nothing, headers)
 
@@ -69,6 +71,7 @@ function get_ticker_data(
         "endDate" => Dates.format(end_date, "yyyy-mm-dd")
     )
 
+    @info "Fetching price data for $ticker from $start_date to $end_date"
     data = fetch_api_data(url, query, headers)
     return DataFrame(data)
 end
@@ -103,6 +106,7 @@ function fetch_api_data(
     last_error = nothing
 
     for attempt in 1:max_retries
+        @info "API request attempt $attempt for URL: $url"
         try
             response = isnothing(query) ?
                 HTTP.get(url, headers=headers) :
@@ -115,7 +119,6 @@ function fetch_api_data(
 
             return data
         catch e
-            last_error = e
             @warn "API request attempt $attempt failed" exception=e
 
             if attempt < max_retries
