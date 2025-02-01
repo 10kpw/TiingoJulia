@@ -283,7 +283,7 @@ function update_existing_ticker(
     api_key::String
 )
     symbol = ticker_info.ticker
-    end_date = ticker_info.endDate
+    end_date = ticker_info.end_date
 
     if latest_date <= end_date
         @info "$index : $symbol : $latest_date ~ $end_date"
