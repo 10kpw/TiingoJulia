@@ -38,33 +38,18 @@ end
 Get historical data for a given ticker from Tiingo API.
 """
 function get_ticker_data(
-    ticker::String;
-    start_date::Union{String,Date,Nothing} = nothing,
-    end_date::Union{String,Date,Nothing} = nothing,
+    ticker_info::DataFrameRow;
     api_key::String = get_api_key(),
     base_url::String = "https://api.tiingo.com/tiingo/daily"
 )::DataFrame
-    @info "Starting API call for ticker: $ticker"
-    # Set default dates if none provided
-    end_date = isnothing(end_date) ? Date(now()) : Date(end_date)
-    start_date = isnothing(start_date) ? end_date - Year(5) : Date(start_date)
+    ticker = ticker_info.ticker
+    start_date = ticker_info.startDate
+    end_date = ticker_info.endDate
 
-    # Ensure dates are formatted correctly for the API
-    start_date_str = Dates.format(start_date, "yyyy-mm-dd")
-    end_date_str = Dates.format(end_date, "yyyy-mm-dd")
+    @info "Starting API call for ticker: $ticker"
 
     headers = Dict("Authorization" => "Token $api_key")
 
-    # Get metadata to verify date range
-    @info "Fetching metadata for $ticker"
-    meta_url = "$base_url/$ticker"
-    meta_data = fetch_api_data(meta_url, nothing, headers)
-
-    # Adjust dates based on available data
-    end_date = min(Date(end_date_str), Date(meta_data.endDate))
-    start_date = max(Date(start_date_str), Date(meta_data.startDate))
-
-    # Fetch price data
     url = "$base_url/$ticker/prices"
     query = Dict(
         "startDate" => Dates.format(start_date, "yyyy-mm-dd"),
@@ -73,6 +58,8 @@ function get_ticker_data(
 
     @info "Fetching price data for $ticker from $start_date to $end_date"
     data = fetch_api_data(url, query, headers)
+
+    @info "Completed API call for $ticker"
     return DataFrame(data)
 end
 

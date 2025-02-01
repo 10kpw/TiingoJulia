@@ -238,8 +238,6 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )::Tuple{Vector{String}, Vector{String}, Vector{String}}
-
-    end_date = maximum(skipmissing(tickers.end_date))
     missing_tickers = String[]
     updated_tickers = String[]
     error_tickers = String[]
@@ -247,18 +245,10 @@ function update_historical(
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
         try
-            process_ticker(conn, symbol, end_date, api_key, add_missing, i, missing_tickers, updated_tickers)
+            process_ticker(conn, row, api_key, i, missing_tickers, updated_tickers)
         catch e
             @warn "Error processing ticker $symbol: $e"
             push!(error_tickers, symbol)
-        end
-    end
-
-    if !isempty(missing_tickers)
-        if add_missing
-            @info "Added $(length(missing_tickers)) missing tickers to historical_data"
-        else
-            @warn "The following tickers are not in historical_data: $missing_tickers"
         end
     end
 
@@ -268,20 +258,48 @@ end
 
 function process_ticker(
     conn::DuckDBConnection,
-    symbol::String,
-    end_date::Date,
+    ticker_info::DataFrameRow,
     api_key::String,
-    add_missing::Bool,
     index::Int,
     missing_tickers::Vector{String},
     updated_tickers::Vector{String}
 )
+    symbol = ticker_info.ticker
     hist_data = get_latest_date(conn, symbol)
 
     if isempty(hist_data) || ismissing(hist_data[1, :latest_date])
-        handle_missing_ticker(conn, symbol, api_key, add_missing, missing_tickers, updated_tickers)
+        handle_missing_ticker(conn, ticker_info, api_key, missing_tickers, updated_tickers)
     else
-        update_existing_ticker(conn, symbol, hist_data[1, :latest_date], end_date, api_key, index, updated_tickers)
+        update_existing_ticker(conn, ticker_info, hist_data[1, :latest_date], index, updated_tickers, api_key)
+    end
+end
+
+function update_existing_ticker(
+    conn::DuckDBConnection,
+    ticker_info::DataFrameRow,
+    latest_date::Date,
+    index::Int,
+    updated_tickers::Vector{String},
+    api_key::String
+)
+    symbol = ticker_info.ticker
+    end_date = ticker_info.endDate
+
+    if latest_date <= end_date
+        @info "$index : $symbol : $latest_date ~ $end_date"
+        try
+            ticker_data = get_ticker_data(ticker_info; api_key=api_key)
+            if !isempty(ticker_data)
+                upsert_stock_data(conn, ticker_data, symbol)
+                push!(updated_tickers, symbol)
+            else
+                @warn "No data retrieved for $symbol"
+            end
+        catch e
+            @warn "Failed to update $symbol: $e"
+        end
+    else
+        @info "$index : $symbol has the latest data"
     end
 end
 
@@ -297,50 +315,24 @@ end
 
 function handle_missing_ticker(
     conn::DuckDBConnection,
-    symbol::String,
+    ticker_info::DataFrameRow,
     api_key::String,
-    add_missing::Bool,
     missing_tickers::Vector{String},
     updated_tickers::Vector{String}
 )
+    symbol = ticker_info.ticker
     push!(missing_tickers, symbol)
-    if add_missing
-        @info "Adding missing ticker: $symbol"
-        try
-            add_historical_data(conn, symbol, api_key)
+    @info "Adding missing ticker: $symbol"
+    try
+        ticker_data = get_ticker_data(ticker_info; api_key=api_key)
+        if !isempty(ticker_data)
+            upsert_stock_data(conn, ticker_data, symbol)
             push!(updated_tickers, symbol)
-        catch e
-            @warn "Failed to add historical data for $symbol: $e"
+        else
+            @warn "No data retrieved for $symbol"
         end
-    else
-        @info "Skipping missing ticker: $symbol"
-    end
-end
-
-function update_existing_ticker(
-    conn::DuckDBConnection,
-    symbol::String,
-    start_date::Date,
-    end_date::Date,
-    api_key::String,
-    index::Int,
-    updated_tickers::Vector{String}
-)
-    if start_date <= end_date
-        @info "$index : $symbol : $start_date ~ $end_date"
-        try
-            ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
-            if !isempty(ticker_data)
-                upsert_stock_data(conn, ticker_data, symbol)
-                push!(updated_tickers, symbol)
-            else
-                @warn "No data retrieved for $symbol"
-            end
-        catch e
-            @warn "Failed to update $symbol: $e"
-        end
-    else
-        @info "$index : $symbol has the latest data"
+    catch e
+        @warn "Failed to add historical data for $symbol: $e"
     end
 end
 
