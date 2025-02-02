@@ -43,8 +43,8 @@ function get_ticker_data(
     base_url::String = "https://api.tiingo.com/tiingo/daily"
 )::DataFrame
     ticker = ticker_info.ticker
-    start_date = ticker_info.startDate
-    end_date = ticker_info.endDate
+    start_date = ticker_info.start_date
+    end_date = ticker_info.end_date
 
     @info "Starting API call for ticker: $ticker"
 
@@ -61,21 +61,6 @@ function get_ticker_data(
 
     @info "Completed API call for $ticker"
     return DataFrame(data)
-end
-
-"""
-    get_date_range(ticker::String, start_date, end_date, headers::Dict, base_url::String)
-
-Helper function to get the date range for the ticker data.
-"""
-function get_date_range(ticker::String, start_date, end_date, headers::Dict, base_url::String)
-    if isnothing(end_date)
-        meta_url = "$base_url/$ticker"
-        meta_data = fetch_api_data(meta_url, nothing, headers)
-        end_date = meta_data.endDate
-        start_date = isnothing(start_date) ? meta_data.startDate : start_date
-    end
-    return start_date, end_date
 end
 
 """
