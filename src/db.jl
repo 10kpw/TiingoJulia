@@ -436,29 +436,34 @@ end
 
 Update data for tickers that have undergone a split.
 """
-function update_splitted_ticker(
+function update_split_ticker(
     conn::DuckDBConnection,
     tickers::DataFrame, # all tickers is best
     api_key::String = get_api_key()
 )
     end_date = maximum(skipmissing(tickers.end_date))
 
-    splitted_tickers = DBInterface.execute(conn, """
+    split_tickers = DBInterface.execute(conn, """
     SELECT ticker, splitFactor, date
       FROM historical_data
      WHERE date = '$end_date'
        AND splitFactor <> 1.0
     """) |> DataFrame
 
-    for (i, row) in enumerate(eachrow(splitted_tickers))
+    for (i, row) in enumerate(eachrow(split_tickers))
         symbol = row.ticker
         if ismissing(symbol) || symbol === nothing
             continue  # Skip this row if ticker is missing or null
         end
-        start_date = tickers[tickers.ticker .== symbol, :start_date][1]
+        ticker_info = tickers[tickers.ticker .== symbol, :]
+        if isempty(ticker_info)
+            @warn "No ticker info found for $symbol"
+            continue
+        end
+        start_date = tickers_info[1, :start_date]
         @info "$i: Updating split ticker $symbol from $start_date to $end_date"
-        ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
-        upsert_stock_data(conn, ticker_data, symbol)
+        ticker_data = get_ticker_data(ticker_info[1, :]; api_key=api_key)
+        upsert_stock_data(conn, ticker_data, symbol)k
     end
     @info "Updated split tickers"
 end
