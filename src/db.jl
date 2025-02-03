@@ -463,7 +463,7 @@ function update_split_ticker(
         start_date = ticker_info[1, :start_date]
         @info "$i: Updating split ticker $symbol from $start_date to $end_date"
         ticker_data = get_ticker_data(ticker_info[1, :]; api_key=api_key)
-        upsert_stock_data(conn, ticker_data, symbol)k
+        upsert_stock_data(conn, ticker_data, symbol)
     end
     @info "Updated split tickers"
 end
