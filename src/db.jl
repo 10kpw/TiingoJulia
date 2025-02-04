@@ -56,8 +56,6 @@ function verify_duckdb_integrity(path::String)
         try
             # Check if we can execute basic queries
             DBInterface.execute(conn, "SELECT 1")
-
-            # Check if expected tables exist
             tables = DBInterface.execute(conn, """
                 SELECT table_name
                 FROM information_schema.tables
@@ -84,23 +82,26 @@ Connect to the DuckDB database and create necessary tables if they don't exist.
 """
 function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
-        @info "Attempting to connect to DuckDB at path: $path"
+        @info "Attempting to connect to database at $path"
+
+        if !isfile(path)
+            error("Database file does not exist at $path")
+        end
+
+        # Try read-only connection first to test file
+        test_conn = DBInterface.execute(DuckDB.DB, """
+            ATTACH '$(path)' AS test_db (READ_ONLY);
+        """)
+        DBInterface.execute(test_conn, "DETACH test_db;")
+        DuckDB.close(test_conn)
+
+        # Connect normally if test succeeds
         conn = DBInterface.connect(DuckDB.DB, path)
         configure_database(conn)
+        create_tables(conn)
         return conn
     catch e
-        @warn "Failed to connect to existing database: $e"
-
-        @info "Attempting to create a new database at path: $path"
-        try
-            conn = DBInterface.connect(DuckDB.DB, path; create=true)
-            configure_database(conn)
-            create_tables(conn)
-            return conn
-        catch new_e
-            @error "Failed to create new database" exception=(new_e, catch_backtrace())
-            throw(DatabaseConnectionError("Failed to connect to or create DuckDB: $new_e"))
-        end
+        handle_connection_error(e, path)
     end
 end
 
@@ -110,11 +111,8 @@ end
 Configure database settings and verify connection.
 """
 function configure_database(conn::DuckDBConnection)
-    @info "Configuring database settings"
     DBInterface.execute(conn, "SET memory_limit='4GB'")
     DBInterface.execute(conn, "SET threads=4")
-
-    @info "Verifying connection"
     DBInterface.execute(conn, "SELECT 1")
     @info "Database configuration complete"
 end
@@ -126,60 +124,61 @@ Create necessary tables in the DuckDB database if they don't exist.
 """
 function create_tables(conn::DuckDBConnection)
     tables = [
-        ("us_tickers", """
-        CREATE TABLE IF NOT EXISTS us_tickers (
-            ticker VARCHAR,
-            exchange VARCHAR,
-            assetType VARCHAR,
-            priceCurrency VARCHAR,
-            startDate DATE,
-            endDate DATE
-        )
-        """),
-        ("us_tickers_filtered", """
-        CREATE TABLE IF NOT EXISTS us_tickers_filtered AS
-        SELECT * FROM us_tickers
-        WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-        AND assetType IN ('Stock', 'ETF')
-        AND ticker NOT LIKE '%/%'
-        """),
-        ("historical_data", """
-        CREATE TABLE IF NOT EXISTS historical_data (
-            ticker VARCHAR,
-            date DATE,
-            close FLOAT,
-            high FLOAT,
-            low FLOAT,
-            open FLOAT,
-            volume BIGINT,
-            adjClose FLOAT,
-            adjHigh FLOAT,
-            adjLow FLOAT,
-            adjOpen FLOAT,
-            adjVolume BIGINT,
-            divCash FLOAT,
-            splitFactor FLOAT,
-            UNIQUE (ticker, date)
-        )
-        """)
+        (DBConstants.Tables.US_TICKERS, generate_us_tickers_schema()),
+        (DBConstants.Tables.US_TICKERS_FILTERED, generate_filtered_tickers_schema()),
+        (DBConstants.Tables.HISTORICAL_DATA, generate_historical_data_schema())
     ]
 
-    for (table_name, query) in tables
-        try
-            DBInterface.execute(conn, query)
-            @info "Created table if not exists: $table_name"
-        catch e
-            @error "Failed to create table: $table_name" exception=(e, catch_backtrace())
-        end
+    for (table_name, schema) in tables
+        create_table_if_not_exists(conn, table_name, schema)
     end
 end
 
-"""
-    close_duckdb(conn::DuckDBConnection)
+# Schema Definitions
+function generate_us_tickers_schema()
+    """
+    CREATE TABLE IF NOT EXISTS $(DBConstants.Tables.US_TICKERS) (
+        ticker VARCHAR,
+        exchange VARCHAR,
+        assetType VARCHAR,
+        priceCurrency VARCHAR,
+        startDate DATE,
+        endDate DATE
+    )
+    """
+end
 
-Close the DuckDB database connection.
-"""
-close_duckdb(conn::DuckDBConnection) = DuckDB.close(conn)
+function generate_filtered_tickers_schema()
+    """
+    CREATE TABLE IF NOT EXISTS $(DBConstants.Tables.US_TICKERS_FILTERED) AS
+    SELECT * FROM $(DBConstants.Tables.US_TICKERS)
+    WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
+    AND assetType IN ('Stock', 'ETF')
+    AND ticker NOT LIKE '%/%'
+    """
+end
+
+function generate_historical_data_schema()
+    """
+    CREATE TABLE IF NOT EXISTS $(DBConstants.Tables.HISTORICAL_DATA) (
+        ticker VARCHAR,
+        date DATE,
+        close FLOAT,
+        high FLOAT,
+        low FLOAT,
+        open FLOAT,
+        volume BIGINT,
+        adjClose FLOAT,
+        adjHigh FLOAT,
+        adjLow FLOAT,
+        adjOpen FLOAT,
+        adjVolume BIGINT,
+        divCash FLOAT,
+        splitFactor FLOAT,
+        UNIQUE (ticker, date)
+    )
+    """
+end
 
 """
     update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
@@ -200,23 +199,6 @@ function update_us_tickers(conn::DuckDBConnection, csv_file::String = DBConstant
     end
 end
 
-"""
-    get_end_date(tickers::DataFrame)::Date
-
-Get the end date for historical data update.
-"""
-function get_end_date(tickers::DataFrame)::Date
-    try
-        if :end_date in propertynames(tickers)
-            dates = skipmissing(tickers.end_date)
-            isempty(dates) ? Date(now()) : maximum(dates)
-        else
-            Date(now())
-        end
-    catch
-        Date(now())
-    end
-end
 
 """
     update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key(); add_missing::Bool = false)
@@ -237,40 +219,49 @@ function update_historical(
     tickers::DataFrame,
     api_key::String = get_api_key();
     add_missing::Bool = true
-)::Tuple{Vector{String}, Vector{String}, Vector{String}}
-    missing_tickers = String[]
+)
+    latest_dates = get_latest_dates(conn)
+    end_date = Date(now())
     updated_tickers = String[]
-    error_tickers = String[]
+    missing_tickers = String[]
 
     for (i, row) in enumerate(eachrow(tickers))
-        symbol = row.ticker
-        try
-            process_ticker(conn, row, api_key, i, missing_tickers, updated_tickers)
-        catch e
-            @warn "Error processing ticker $symbol: $e"
-            push!(error_tickers, symbol)
-        end
+        process_ticker_update(conn, row, latest_dates, end_date, api_key, add_missing,
+                            updated_tickers, missing_tickers, i)
     end
 
+    error_tickers = String[]  # Add this line
     log_update_results(missing_tickers, updated_tickers, error_tickers, add_missing)
-    return (updated_tickers, missing_tickers, error_tickers)
+    return (updated_tickers, missing_tickers)
 end
 
-function process_ticker(
-    conn::DuckDBConnection,
-    ticker_info::DataFrameRow,
-    api_key::String,
-    index::Int,
-    missing_tickers::Vector{String},
-    updated_tickers::Vector{String}
-)
-    symbol = ticker_info.ticker
-    hist_data = get_latest_date(conn, symbol)
+# Helper functions for update_historical
+function get_latest_dates(conn::DuckDBConnection)
+    DBInterface.execute(conn, """
+        SELECT ticker, MAX(date) as latest_date
+        FROM $(DBConstants.Tables.HISTORICAL_DATA)
+        GROUP BY ticker
+    """) |> DataFrame
+end
 
-    if isempty(hist_data) || ismissing(hist_data[1, :latest_date])
-        handle_missing_ticker(conn, ticker_info, api_key, missing_tickers, updated_tickers)
+function process_ticker_update(
+    conn::DuckDBConnection,
+    row::DataFrameRow,
+    latest_dates::DataFrame,
+    end_date::Date,
+    api_key::String,
+    add_missing::Bool,
+    updated_tickers::Vector{String},
+    missing_tickers::Vector{String},
+    index::Int
+)
+    symbol = row.ticker
+    ticker_latest = filter(r -> r.ticker == symbol, latest_dates)
+
+    if isempty(ticker_latest)
+        handle_missing_ticker(conn, row, api_key, missing_tickers, updated_tickers)
     else
-        update_existing_ticker(conn, ticker_info, hist_data[1, :latest_date], index, updated_tickers, api_key)
+        update_existing_ticker(conn, row, ticker_latest[1, :latest_date], index, updated_tickers, api_key)
     end
 end
 
