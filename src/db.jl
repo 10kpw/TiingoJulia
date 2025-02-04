@@ -98,6 +98,21 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
 end
 
 """
+    create_table_if_not_exists(conn::DuckDBConnection, table_name::String, schema::String)
+
+Create a table if it doesn't exist using the provided schema.
+"""
+function create_table_if_not_exists(conn::DuckDBConnection, table_name::String, schema::String)
+    try
+        DBInterface.execute(conn, schema)
+        @info "Created table if not exists: $table_name"
+    catch e
+        @error "Failed to create table $table_name" exception=e
+        rethrow(e)
+    end
+end
+
+"""
     handle_connection_error(e::Exception, path::String)
 
 Handle database connection errors with appropriate logging and error messages.
