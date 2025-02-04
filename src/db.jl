@@ -106,6 +106,26 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
 end
 
 """
+    handle_connection_error(e::Exception, path::String)
+
+Handle database connection errors with appropriate logging and error messages.
+"""
+function handle_connection_error(e::Exception, path::String)
+    @error "Failed to connect to DuckDB database" exception=e path=path
+
+    if occursin("database file is corrupt", string(e))
+        @error "Database appears to be corrupted. Please check recent backups."
+        backups = sort(filter(f -> startswith(f, path * ".backup_"), readdir(dirname(path), join=true)), rev=true)
+        if !isempty(backups)
+            @info "Available backups:" backups
+        end
+    end
+
+    throw(DatabaseConnectionError("Failed to connect to DuckDB: $e"))
+end
+
+
+"""
     configure_database(conn::DuckDBConnection)
 
 Configure database settings and verify connection.
