@@ -90,7 +90,6 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
 
         # Connect directly without test connection
         conn = DBInterface.connect(DuckDB.DB, path)
-        configure_database(conn)
         create_tables(conn)
         return conn
     catch e
@@ -117,18 +116,6 @@ function handle_connection_error(e::Exception, path::String)
     throw(DatabaseConnectionError("Failed to connect to DuckDB: $e"))
 end
 
-
-"""
-    configure_database(conn::DuckDBConnection)
-
-Configure database settings and verify connection.
-"""
-function configure_database(conn::DuckDBConnection)
-    DBInterface.execute(conn, "SET memory_limit='4GB'")
-    DBInterface.execute(conn, "SET threads=4")
-    DBInterface.execute(conn, "SELECT 1")
-    @info "Database configuration complete"
-end
 
 """
     create_tables(conn::DuckDBConnection)
