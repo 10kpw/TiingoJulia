@@ -82,53 +82,24 @@ Connect to the DuckDB database and create necessary tables if they don't exist.
 """
 function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
     try
-        @info "Attempting to connect to database at $path"
-
-        if !isfile(path)
-            error("Database file does not exist at $path")
-        end
-
-        # Connect directly without test connection
+        @info "Attempting to connect to DuckDB at path: $path"
         conn = DBInterface.connect(DuckDB.DB, path)
-        create_tables(conn)
+        configure_database(conn)
         return conn
     catch e
-        handle_connection_error(e, path)
-    end
-end
+        @warn "Failed to connect to existing database: $e"
 
-"""
-    create_table_if_not_exists(conn::DuckDBConnection, table_name::String, schema::String)
-
-Create a table if it doesn't exist using the provided schema.
-"""
-function create_table_if_not_exists(conn::DuckDBConnection, table_name::String, schema::String)
-    try
-        DBInterface.execute(conn, schema)
-        @info "Created table if not exists: $table_name"
-    catch e
-        @error "Failed to create table $table_name" exception=e
-        rethrow(e)
-    end
-end
-
-"""
-    handle_connection_error(e::Exception, path::String)
-
-Handle database connection errors with appropriate logging and error messages.
-"""
-function handle_connection_error(e::Exception, path::String)
-    @error "Failed to connect to DuckDB database" exception=e path=path
-
-    if occursin("database file is corrupt", string(e))
-        @error "Database appears to be corrupted. Please check recent backups."
-        backups = sort(filter(f -> startswith(f, path * ".backup_"), readdir(dirname(path), join=true)), rev=true)
-        if !isempty(backups)
-            @info "Available backups:" backups
+        @info "Attempting to create a new database at path: $path"
+        try
+            conn = DBInterface.connect(DuckDB.DB, path; create=true)
+            configure_database(conn)
+            create_tables(conn)
+            return conn
+        catch new_e
+            @error "Failed to create new database" exception=(new_e, catch_backtrace())
+            throw(DatabaseConnectionError("Failed to connect to or create DuckDB: $new_e"))
         end
     end
-
-    throw(DatabaseConnectionError("Failed to connect to DuckDB: $e"))
 end
 
 
@@ -139,60 +110,52 @@ Create necessary tables in the DuckDB database if they don't exist.
 """
 function create_tables(conn::DuckDBConnection)
     tables = [
-        (DBConstants.Tables.US_TICKERS, generate_us_tickers_schema()),
-        (DBConstants.Tables.US_TICKERS_FILTERED, generate_filtered_tickers_schema()),
-        (DBConstants.Tables.HISTORICAL_DATA, generate_historical_data_schema())
+        ("us_tickers", """
+        CREATE TABLE IF NOT EXISTS us_tickers (
+            ticker VARCHAR,
+            exchange VARCHAR,
+            assetType VARCHAR,
+            priceCurrency VARCHAR,
+            startDate DATE,
+            endDate DATE
+        )
+        """),
+        ("us_tickers_filtered", """
+        CREATE TABLE IF NOT EXISTS us_tickers_filtered AS
+        SELECT * FROM us_tickers
+        WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
+        AND assetType IN ('Stock', 'ETF')
+        AND ticker NOT LIKE '%/%'
+        """),
+        ("historical_data", """
+        CREATE TABLE IF NOT EXISTS historical_data (
+            ticker VARCHAR,
+            date DATE,
+            close FLOAT,
+            high FLOAT,
+            low FLOAT,
+            open FLOAT,
+            volume BIGINT,
+            adjClose FLOAT,
+            adjHigh FLOAT,
+            adjLow FLOAT,
+            adjOpen FLOAT,
+            adjVolume BIGINT,
+            divCash FLOAT,
+            splitFactor FLOAT,
+            UNIQUE (ticker, date)
+        )
+        """)
     ]
 
-    for (table_name, schema) in tables
-        create_table_if_not_exists(conn, table_name, schema)
+    for (table_name, query) in tables
+        try
+            DBInterface.execute(conn, query)
+            @info "Created table if not exists: $table_name"
+        catch e
+            @error "Failed to create table: $table_name" exception=(e, catch_backtrace())
+        end
     end
-end
-
-# Schema Definitions
-function generate_us_tickers_schema()
-    """
-    CREATE TABLE IF NOT EXISTS $(DBConstants.Tables.US_TICKERS) (
-        ticker VARCHAR,
-        exchange VARCHAR,
-        assetType VARCHAR,
-        priceCurrency VARCHAR,
-        startDate DATE,
-        endDate DATE
-    )
-    """
-end
-
-function generate_filtered_tickers_schema()
-    """
-    CREATE TABLE IF NOT EXISTS $(DBConstants.Tables.US_TICKERS_FILTERED) AS
-    SELECT * FROM $(DBConstants.Tables.US_TICKERS)
-    WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-    AND assetType IN ('Stock', 'ETF')
-    AND ticker NOT LIKE '%/%'
-    """
-end
-
-function generate_historical_data_schema()
-    """
-    CREATE TABLE IF NOT EXISTS $(DBConstants.Tables.HISTORICAL_DATA) (
-        ticker VARCHAR,
-        date DATE,
-        close FLOAT,
-        high FLOAT,
-        low FLOAT,
-        open FLOAT,
-        volume BIGINT,
-        adjClose FLOAT,
-        adjHigh FLOAT,
-        adjLow FLOAT,
-        adjOpen FLOAT,
-        adjVolume BIGINT,
-        divCash FLOAT,
-        splitFactor FLOAT,
-        UNIQUE (ticker, date)
-    )
-    """
 end
 
 """
