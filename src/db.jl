@@ -88,14 +88,7 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
             error("Database file does not exist at $path")
         end
 
-        # Try read-only connection first to test file
-        test_conn = DBInterface.execute(DuckDB.DB, """
-            ATTACH '$(path)' AS test_db (READ_ONLY);
-        """)
-        DBInterface.execute(test_conn, "DETACH test_db;")
-        DuckDB.close(test_conn)
-
-        # Connect normally if test succeeds
+        # Connect directly without test connection
         conn = DBInterface.connect(DuckDB.DB, path)
         configure_database(conn)
         create_tables(conn)
