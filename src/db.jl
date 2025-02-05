@@ -76,6 +76,15 @@ function verify_duckdb_integrity(path::String)
 end
 
 """
+    configure_database(conn::DuckDBConnection)
+
+Configure database settings.
+"""
+function configure_database(conn::DuckDBConnection)
+    DBInterface.execute(conn, "SET threads TO 4")
+end
+
+"""
     connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
@@ -85,13 +94,16 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
         @info "Attempting to connect to DuckDB at path: $path"
         conn = DBInterface.connect(DuckDB.DB, path)
         configure_database(conn)
+        create_tables(conn)
         return conn
     catch e
         @warn "Failed to connect to existing database: $e"
 
         @info "Attempting to create a new database at path: $path"
         try
-            conn = DBInterface.connect(DuckDB.DB, path; create=true)
+            # Ensure directory exists
+            mkpath(dirname(path))
+            conn = DBInterface.connect(DuckDB.DB, path)
             configure_database(conn)
             create_tables(conn)
             return conn
