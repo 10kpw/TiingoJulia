@@ -170,6 +170,7 @@ function create_tables(conn::DuckDBConnection)
     end
 end
 
+
 """
     update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
 
@@ -214,16 +215,44 @@ function update_historical(
     end_date = Date(now())
     updated_tickers = String[]
     missing_tickers = String[]
+    error_tickers = String[]
 
     for (i, row) in enumerate(eachrow(tickers))
-        process_ticker_update(conn, row, latest_dates, end_date, api_key, add_missing,
-                            updated_tickers, missing_tickers, i)
+        symbol = row.ticker
+        ticker_latest = filter(r -> r.ticker == symbol, latest_dates)
+
+        if isempty(ticker_latest)
+            handle_missing_ticker(conn, row, api_key, missing_tickers, updated_tickers)
+        else
+            latest_date = ticker_latest[1, :latest_date]
+            if latest_date < end_date
+                @info "$i : $symbol : $(latest_date + Day(1)) ~ $end_date"
+                try
+                    # Only fetch data since the last available date
+                    ticker_data = get_ticker_data(
+                        row,
+                        start_date = latest_date + Day(1),
+                        end_date = end_date,
+                        api_key = api_key
+                    )
+                    if !isempty(ticker_data)
+                        upsert_stock_data(conn, ticker_data, symbol)
+                        push!(updated_tickers, symbol)
+                    end
+                catch e
+                    @warn "Failed to update $symbol: $e"
+                    push!(error_tickers, symbol)
+                end
+            else
+                @info "$i : $symbol is up to date"
+            end
+        end
     end
 
-    error_tickers = String[]  # Add this line
     log_update_results(missing_tickers, updated_tickers, error_tickers, add_missing)
     return (updated_tickers, missing_tickers)
 end
+
 
 # Helper functions for update_historical
 function get_latest_dates(conn::DuckDBConnection)
@@ -234,26 +263,6 @@ function get_latest_dates(conn::DuckDBConnection)
     """) |> DataFrame
 end
 
-function process_ticker_update(
-    conn::DuckDBConnection,
-    row::DataFrameRow,
-    latest_dates::DataFrame,
-    end_date::Date,
-    api_key::String,
-    add_missing::Bool,
-    updated_tickers::Vector{String},
-    missing_tickers::Vector{String},
-    index::Int
-)
-    symbol = row.ticker
-    ticker_latest = filter(r -> r.ticker == symbol, latest_dates)
-
-    if isempty(ticker_latest)
-        handle_missing_ticker(conn, row, api_key, missing_tickers, updated_tickers)
-    else
-        update_existing_ticker(conn, row, ticker_latest[1, :latest_date], index, updated_tickers, api_key)
-    end
-end
 
 function update_existing_ticker(
     conn::DuckDBConnection,

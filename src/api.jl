@@ -62,28 +62,37 @@ end
 
 
 """
+    get_ticker_data(
+        ticker_info::DataFrameRow;
+        start_date::Union{Date,Nothing} = nothing,
+        end_date::Union{Date,Nothing} = nothing,
+        api_key::String = get_api_key(),
+        base_url::String = "https://api.tiingo.com/tiingo/daily"
+    )::DataFrame
+
 Get historical data for a given ticker from Tiingo API.
 """
 function get_ticker_data(
     ticker_info::DataFrameRow;
+    start_date::Union{Date,Nothing} = nothing,
+    end_date::Union{Date,Nothing} = nothing,
     api_key::String = get_api_key(),
     base_url::String = "https://api.tiingo.com/tiingo/daily"
 )::DataFrame
     ticker = ticker_info.ticker
-    start_date = ticker_info.start_date
-    end_date = ticker_info.end_date
+    actual_start_date = something(start_date, ticker_info.start_date)
+    actual_end_date = something(end_date, ticker_info.end_date)
 
     @info "Starting API call for ticker: $ticker"
 
     headers = Dict("Authorization" => "Token $api_key")
-
     url = "$base_url/$ticker/prices"
     query = Dict(
-        "startDate" => Dates.format(start_date, "yyyy-mm-dd"),
-        "endDate" => Dates.format(end_date, "yyyy-mm-dd")
+        "startDate" => Dates.format(actual_start_date, "yyyy-mm-dd"),
+        "endDate" => Dates.format(actual_end_date, "yyyy-mm-dd")
     )
 
-    @info "Fetching price data for $ticker from $start_date to $end_date"
+    @info "Fetching price data for $ticker from $actual_start_date to $actual_end_date"
     data = fetch_api_data(url, query, headers)
 
     @info "Completed API call for $ticker"
