@@ -83,8 +83,6 @@ function get_ticker_data(
     actual_start_date = something(start_date, ticker_info.start_date)
     actual_end_date = something(end_date, ticker_info.end_date)
 
-    @info "Starting API call for ticker: $ticker"
-
     headers = Dict("Authorization" => "Token $api_key")
     url = "$base_url/$ticker/prices"
     query = Dict(
