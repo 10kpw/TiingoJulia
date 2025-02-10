@@ -93,7 +93,6 @@ function get_ticker_data(
     @info "Fetching price data for $ticker from $actual_start_date to $actual_end_date"
     data = fetch_api_data(url, query, headers)
 
-    @info "Completed API call for $ticker"
     return DataFrame(data)
 end
 

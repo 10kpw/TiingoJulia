@@ -797,3 +797,17 @@ function setup_postgres_connection(
         rethrow(e)
     end
 end
+
+"""
+    close_duckdb(conn::DuckDBConnection)
+
+Safely close a DuckDB database connection.
+"""
+function close_duckdb(conn::DuckDBConnection)
+    try
+        DBInterface.close!(conn)
+        @info "DuckDB connection closed successfully"
+    catch e
+        @warn "Error closing DuckDB connection" exception=e
+    end
+end
