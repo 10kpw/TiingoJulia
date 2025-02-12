@@ -214,12 +214,10 @@ function update_historical(
     latest_dates_df = get_latest_dates(conn)
     # Get the latest available date from historical data
     end_date = DBInterface.execute(conn, """
-        SELECT MAX(date) as latest_date
-        FROM historical_data
-        WHERE ticker IN (
-            SELECT ticker FROM us_tickers_filtered
-            WHERE assetType = 'Stock' AND exchange = 'NYSE'
-        )
+    SELECT MAX(endDate) as end_date
+    FROM us_tickers_filtered
+    WHERE ticker = 'SPY'
+    ORDER BY 1;
     """) |> DataFrame |> first |> first
     if isnothing(end_date)
         end_date = Date(now()) - Day(1)  # Default to yesterday if no data
