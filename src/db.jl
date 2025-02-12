@@ -211,28 +211,39 @@ function update_historical(
     api_key::String = get_api_key();
     add_missing::Bool = true
 )
-    latest_dates = get_latest_dates(conn)
-    end_date = Date(now())
+    latest_dates_df = get_latest_dates(conn)
+    # Get the latest available date from historical data
+    end_date = DBInterface.execute(conn, """
+        SELECT MAX(date) as latest_date
+        FROM historical_data
+        WHERE ticker IN (
+            SELECT ticker FROM us_tickers_filtered
+            WHERE assetType = 'Stock' AND exchange = 'NYSE'
+        )
+    """) |> DataFrame |> first |> first
+    if isnothing(end_date)
+        end_date = Date(now()) - Day(1)  # Default to yesterday if no data
+    end
+
     updated_tickers = String[]
     missing_tickers = String[]
     error_tickers = String[]
 
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
-        ticker_latest = filter(r -> r.ticker == symbol, latest_dates)
+        ticker_latest = filter(r -> r.ticker == symbol, latest_dates_df)
 
         if isempty(ticker_latest)
             handle_missing_ticker(conn, row, api_key, missing_tickers, updated_tickers)
         else
             latest_date = ticker_latest[1, :latest_date]
-            if latest_date < end_date
-                @info "$i : $symbol : $(latest_date + Day(1)) ~ $end_date"
+            if latest_date < latest_market_date
+                @info "$i : $symbol : $(latest_date + Day(1)) ~ $latest_market_date"
                 try
-                    # Only fetch data since the last available date
                     ticker_data = get_ticker_data(
                         row,
                         start_date = latest_date + Day(1),
-                        end_date = end_date,
+                        end_date = latest_market_date,
                         api_key = api_key
                     )
                     if !isempty(ticker_data)
@@ -240,8 +251,12 @@ function update_historical(
                         push!(updated_tickers, symbol)
                     end
                 catch e
-                    @warn "Failed to update $symbol: $e"
-                    push!(error_tickers, symbol)
+                    if isa(e, AssertionError) && occursin("No data returned", e.msg)
+                        @info "$i : $symbol has no new data"
+                    else
+                        @warn "Failed to update $symbol: $e"
+                        push!(error_tickers, symbol)
+                    end
                 end
             else
                 @info "$i : $symbol is up to date"
@@ -258,7 +273,7 @@ end
 function get_latest_dates(conn::DuckDBConnection)
     DBInterface.execute(conn, """
         SELECT ticker, MAX(date) as latest_date
-        FROM $(DBConstants.Tables.HISTORICAL_DATA)
+        FROM $(DBConstants.Tables.historical_data)
         GROUP BY ticker
     """) |> DataFrame
 end
