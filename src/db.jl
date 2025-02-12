@@ -212,7 +212,6 @@ function update_historical(
     add_missing::Bool = true
 )
     latest_dates_df = get_latest_dates(conn)
-    # Get the latest available date from historical data
     end_date = DBInterface.execute(conn, """
     SELECT MAX(endDate) as end_date
     FROM us_tickers_filtered
@@ -271,7 +270,7 @@ end
 function get_latest_dates(conn::DuckDBConnection)
     DBInterface.execute(conn, """
         SELECT ticker, MAX(date) as latest_date
-        FROM $(DBConstants.Tables.historical_data)
+        FROM us_historical_data
         GROUP BY ticker
     """) |> DataFrame
 end
