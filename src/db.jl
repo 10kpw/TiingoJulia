@@ -212,14 +212,14 @@ function update_historical(
     add_missing::Bool = true
 )
     latest_dates_df = get_latest_dates(conn)
-    end_date = DBInterface.execute(conn, """
-    SELECT MAX(endDate) as end_date
+    latest_market_date = DBInterface.execute(conn, """
+    SELECT MAX(endDate)
     FROM us_tickers_filtered
     WHERE ticker = 'SPY'
     ORDER BY 1;
     """) |> DataFrame |> first |> first
-    if isnothing(end_date)
-        end_date = Date(now()) - Day(1)  # Default to yesterday if no data
+    if isnothing(latest_market_date)
+        latest_market_date = Date(now()) - Day(1)  # Default to yesterday if no data
     end
 
     updated_tickers = String[]
