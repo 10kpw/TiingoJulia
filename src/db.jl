@@ -270,7 +270,7 @@ end
 function get_latest_dates(conn::DuckDBConnection)
     DBInterface.execute(conn, """
         SELECT ticker, MAX(date) as latest_date
-        FROM us_historical_data
+        FROM historical_data
         GROUP BY ticker
     """) |> DataFrame
 end
