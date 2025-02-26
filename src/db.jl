@@ -56,8 +56,6 @@ function verify_duckdb_integrity(path::String)
         try
             # Check if we can execute basic queries
             DBInterface.execute(conn, "SELECT 1")
-
-            # Check if expected tables exist
             tables = DBInterface.execute(conn, """
                 SELECT table_name
                 FROM information_schema.tables
@@ -78,6 +76,15 @@ function verify_duckdb_integrity(path::String)
 end
 
 """
+    configure_database(conn::DuckDBConnection)
+
+Configure database settings.
+"""
+function configure_database(conn::DuckDBConnection)
+    DBInterface.execute(conn, "SET threads TO 4")
+end
+
+"""
     connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBConnection
 
 Connect to the DuckDB database and create necessary tables if they don't exist.
@@ -87,13 +94,16 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
         @info "Attempting to connect to DuckDB at path: $path"
         conn = DBInterface.connect(DuckDB.DB, path)
         configure_database(conn)
+        create_tables(conn)
         return conn
     catch e
         @warn "Failed to connect to existing database: $e"
 
         @info "Attempting to create a new database at path: $path"
         try
-            conn = DBInterface.connect(DuckDB.DB, path; create=true)
+            # Ensure directory exists
+            mkpath(dirname(path))
+            conn = DBInterface.connect(DuckDB.DB, path)
             configure_database(conn)
             create_tables(conn)
             return conn
@@ -104,20 +114,6 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
     end
 end
 
-"""
-    configure_database(conn::DuckDBConnection)
-
-Configure database settings and verify connection.
-"""
-function configure_database(conn::DuckDBConnection)
-    @info "Configuring database settings"
-    DBInterface.execute(conn, "SET memory_limit='4GB'")
-    DBInterface.execute(conn, "SET threads=4")
-
-    @info "Verifying connection"
-    DBInterface.execute(conn, "SELECT 1")
-    @info "Database configuration complete"
-end
 
 """
     create_tables(conn::DuckDBConnection)
@@ -174,12 +170,6 @@ function create_tables(conn::DuckDBConnection)
     end
 end
 
-"""
-    close_duckdb(conn::DuckDBConnection)
-
-Close the DuckDB database connection.
-"""
-close_duckdb(conn::DuckDBConnection) = DuckDB.close(conn)
 
 """
     update_us_tickers(conn::DBConnection, csv_file::String = DBConstants.DEFAULT_CSV_FILE)
@@ -200,23 +190,6 @@ function update_us_tickers(conn::DuckDBConnection, csv_file::String = DBConstant
     end
 end
 
-"""
-    get_end_date(tickers::DataFrame)::Date
-
-Get the end date for historical data update.
-"""
-function get_end_date(tickers::DataFrame)::Date
-    try
-        if :end_date in propertynames(tickers)
-            dates = skipmissing(tickers.end_date)
-            isempty(dates) ? Date(now()) : maximum(dates)
-        else
-            Date(now())
-        end
-    catch
-        Date(now())
-    end
-end
 
 """
     update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key(); add_missing::Bool = false)
@@ -237,51 +210,98 @@ function update_historical(
     tickers::DataFrame,
     api_key::String = get_api_key();
     add_missing::Bool = true
-)::Tuple{Vector{String}, Vector{String}, Vector{String}}
+)
+    latest_dates_df = get_latest_dates(conn)
+    latest_market_date = DBInterface.execute(conn, """
+    SELECT MAX(endDate)
+    FROM us_tickers_filtered
+    WHERE ticker = 'SPY'
+    ORDER BY 1;
+    """) |> DataFrame |> first |> first
+    if isnothing(latest_market_date)
+        latest_market_date = Date(now()) - Day(1)  # Default to yesterday if no data
+    end
 
-    end_date = maximum(skipmissing(tickers.end_date))
-    missing_tickers = String[]
     updated_tickers = String[]
+    missing_tickers = String[]
     error_tickers = String[]
 
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
-        try
-            process_ticker(conn, symbol, end_date, api_key, add_missing, i, missing_tickers, updated_tickers)
-        catch e
-            @warn "Error processing ticker $symbol: $e"
-            push!(error_tickers, symbol)
-        end
-    end
+        ticker_latest = filter(r -> r.ticker == symbol, latest_dates_df)
 
-    if !isempty(missing_tickers)
-        if add_missing
-            @info "Added $(length(missing_tickers)) missing tickers to historical_data"
+        if isempty(ticker_latest)
+            handle_missing_ticker(conn, row, api_key, missing_tickers, updated_tickers)
         else
-            @warn "The following tickers are not in historical_data: $missing_tickers"
+            latest_date = ticker_latest[1, :latest_date]
+            if latest_date < latest_market_date
+                @info "$i : $symbol : $(latest_date + Day(1)) ~ $latest_market_date"
+                try
+                    ticker_data = get_ticker_data(
+                        row,
+                        start_date = latest_date + Day(1),
+                        end_date = latest_market_date,
+                        api_key = api_key
+                    )
+                    if !isempty(ticker_data)
+                        upsert_stock_data(conn, ticker_data, symbol)
+                        push!(updated_tickers, symbol)
+                    end
+                catch e
+                    if isa(e, AssertionError) && occursin("No data returned", e.msg)
+                        @info "$i : $symbol has no new data"
+                    else
+                        @warn "Failed to update $symbol: $e"
+                        push!(error_tickers, symbol)
+                    end
+                end
+            else
+                @info "$i : $symbol is up to date"
+            end
         end
     end
 
     log_update_results(missing_tickers, updated_tickers, error_tickers, add_missing)
-    return (updated_tickers, missing_tickers, error_tickers)
+    return (updated_tickers, missing_tickers)
 end
 
-function process_ticker(
-    conn::DuckDBConnection,
-    symbol::String,
-    end_date::Date,
-    api_key::String,
-    add_missing::Bool,
-    index::Int,
-    missing_tickers::Vector{String},
-    updated_tickers::Vector{String}
-)
-    hist_data = get_latest_date(conn, symbol)
 
-    if isempty(hist_data) || ismissing(hist_data[1, :latest_date])
-        handle_missing_ticker(conn, symbol, api_key, add_missing, missing_tickers, updated_tickers)
+# Helper functions for update_historical
+function get_latest_dates(conn::DuckDBConnection)
+    DBInterface.execute(conn, """
+        SELECT ticker, MAX(date) as latest_date
+        FROM historical_data
+        GROUP BY ticker
+    """) |> DataFrame
+end
+
+
+function update_existing_ticker(
+    conn::DuckDBConnection,
+    ticker_info::DataFrameRow,
+    latest_date::Date,
+    index::Int,
+    updated_tickers::Vector{String},
+    api_key::String
+)
+    symbol = ticker_info.ticker
+    end_date = ticker_info.end_date
+
+    if latest_date <= end_date
+        @info "$index : $symbol : $latest_date ~ $end_date"
+        try
+            ticker_data = get_ticker_data(ticker_info; api_key=api_key)
+            if !isempty(ticker_data)
+                upsert_stock_data(conn, ticker_data, symbol)
+                push!(updated_tickers, symbol)
+            else
+                @warn "No data retrieved for $symbol"
+            end
+        catch e
+            @warn "Failed to update $symbol: $e"
+        end
     else
-        update_existing_ticker(conn, symbol, hist_data[1, :latest_date], end_date, api_key, index, updated_tickers)
+        @info "$index : $symbol has the latest data"
     end
 end
 
@@ -297,50 +317,24 @@ end
 
 function handle_missing_ticker(
     conn::DuckDBConnection,
-    symbol::String,
+    ticker_info::DataFrameRow,
     api_key::String,
-    add_missing::Bool,
     missing_tickers::Vector{String},
     updated_tickers::Vector{String}
 )
+    symbol = ticker_info.ticker
     push!(missing_tickers, symbol)
-    if add_missing
-        @info "Adding missing ticker: $symbol"
-        try
-            add_historical_data(conn, symbol, api_key)
+    @info "Adding missing ticker: $symbol"
+    try
+        ticker_data = get_ticker_data(ticker_info; api_key=api_key)
+        if !isempty(ticker_data)
+            upsert_stock_data(conn, ticker_data, symbol)
             push!(updated_tickers, symbol)
-        catch e
-            @warn "Failed to add historical data for $symbol: $e"
+        else
+            @warn "No data retrieved for $symbol"
         end
-    else
-        @info "Skipping missing ticker: $symbol"
-    end
-end
-
-function update_existing_ticker(
-    conn::DuckDBConnection,
-    symbol::String,
-    start_date::Date,
-    end_date::Date,
-    api_key::String,
-    index::Int,
-    updated_tickers::Vector{String}
-)
-    if start_date <= end_date
-        @info "$index : $symbol : $start_date ~ $end_date"
-        try
-            ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
-            if !isempty(ticker_data)
-                upsert_stock_data(conn, ticker_data, symbol)
-                push!(updated_tickers, symbol)
-            else
-                @warn "No data retrieved for $symbol"
-            end
-        catch e
-            @warn "Failed to update $symbol: $e"
-        end
-    else
-        @info "$index : $symbol has the latest data"
+    catch e
+        @warn "Failed to add historical data for $symbol: $e"
     end
 end
 
@@ -444,28 +438,33 @@ end
 
 Update data for tickers that have undergone a split.
 """
-function update_splitted_ticker(
+function update_split_ticker(
     conn::DuckDBConnection,
     tickers::DataFrame, # all tickers is best
     api_key::String = get_api_key()
 )
     end_date = maximum(skipmissing(tickers.end_date))
 
-    splitted_tickers = DBInterface.execute(conn, """
+    split_tickers = DBInterface.execute(conn, """
     SELECT ticker, splitFactor, date
       FROM historical_data
      WHERE date = '$end_date'
        AND splitFactor <> 1.0
     """) |> DataFrame
 
-    for (i, row) in enumerate(eachrow(splitted_tickers))
+    for (i, row) in enumerate(eachrow(split_tickers))
         symbol = row.ticker
         if ismissing(symbol) || symbol === nothing
             continue  # Skip this row if ticker is missing or null
         end
-        start_date = tickers[tickers.ticker .== symbol, :start_date][1]
+        ticker_info = tickers[tickers.ticker .== symbol, :]
+        if isempty(ticker_info)
+            @warn "No ticker info found for $symbol"
+            continue
+        end
+        start_date = ticker_info[1, :start_date]
         @info "$i: Updating split ticker $symbol from $start_date to $end_date"
-        ticker_data = get_ticker_data(symbol; start_date=start_date, end_date=end_date, api_key=api_key)
+        ticker_data = get_ticker_data(ticker_info[1, :]; api_key=api_key)
         upsert_stock_data(conn, ticker_data, symbol)
     end
     @info "Updated split tickers"
@@ -808,5 +807,19 @@ function setup_postgres_connection(
     catch e
         @error "Failed to set up PostgreSQL connection in DuckDB" exception=(e, catch_backtrace())
         rethrow(e)
+    end
+end
+
+"""
+    close_duckdb(conn::DuckDBConnection)
+
+Safely close a DuckDB database connection.
+"""
+function close_duckdb(conn::DuckDBConnection)
+    try
+        DBInterface.close!(conn)
+        @info "DuckDB connection closed successfully"
+    catch e
+        @warn "Error closing DuckDB connection" exception=e
     end
 end

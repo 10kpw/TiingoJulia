@@ -8,123 +8,127 @@ using DuckDB
 using DBInterface
 using ZipFile
 
+module APIConfig
+    using DotEnv
+
+    const ENV_FILE = ".env"
+    const API_KEY_NAME = "TIINGO_API_KEY"
+end
+
 """
-    get_api_key()
+    load_env_file(env_path::String)::Bool
+
+Load environment variables from .env file.
+Returns true if successful, false otherwise.
+"""
+function load_env_file(env_path::String)::Bool
+    try
+        if isfile(env_path)
+            DotEnv.load!(env_path)
+            return true
+        end
+        return false
+    catch e
+        @warn "Failed to load .env file" exception=e
+        return false
+    end
+end
+
+"""
+    get_api_key()::String
 
 Retrieve the Tiingo API key from environment variables or .env file.
+Throws an error if the API key is not found.
 """
 function get_api_key()::String
     # Try to load .env file
-    env_path = joinpath(dirname(@__DIR__), ".env")
-    if isfile(env_path)
-        DotEnv.load!(env_path)
-    else
+    env_path = joinpath(dirname(@__DIR__), APIConfig.ENV_FILE)
+    if !load_env_file(env_path)
         @warn "No .env file found at $env_path"
     end
 
-    api_key = get(ENV, "TIINGO_API_KEY", nothing)
-
+    api_key = get(ENV, APIConfig.API_KEY_NAME, nothing)
     if isnothing(api_key)
-        @warn "TIINGO_API_KEY not found in ENV. Current ENV keys: $(keys(ENV))"
-        error("TIINGO_API_KEY not found. Please set it in your .env file at the root of your project.")
+        available_keys = join(keys(ENV), ", ")
+        error("""
+            $(APIConfig.API_KEY_NAME) not found in environment variables.
+            Available keys: $available_keys
+            Please set it in your .env file at: $env_path
+        """)
     end
 
     return api_key
 end
 
+
 """
-    get_ticker_data(ticker::String; start_date=nothing, end_date=nothing, api_key=get_api_key(), base_url="https://api.tiingo.com/tiingo/daily")
+    get_ticker_data(
+        ticker_info::DataFrameRow;
+        start_date::Union{Date,Nothing} = nothing,
+        end_date::Union{Date,Nothing} = nothing,
+        api_key::String = get_api_key(),
+        base_url::String = "https://api.tiingo.com/tiingo/daily"
+    )::DataFrame
 
 Get historical data for a given ticker from Tiingo API.
 """
 function get_ticker_data(
-    ticker::String;
-    start_date::Union{String,Date,Nothing} = nothing,
-    end_date::Union{String,Date,Nothing} = nothing,
+    ticker_info::DataFrameRow;
+    start_date::Union{Date,Nothing} = nothing,
+    end_date::Union{Date,Nothing} = nothing,
     api_key::String = get_api_key(),
     base_url::String = "https://api.tiingo.com/tiingo/daily"
 )::DataFrame
-    # Set default dates if none provided
-    end_date = isnothing(end_date) ? Date(now()) : Date(end_date)
-    start_date = isnothing(start_date) ? end_date - Year(5) : Date(start_date)
-
-    # Ensure dates are formatted correctly for the API
-    start_date_str = Dates.format(start_date, "yyyy-mm-dd")
-    end_date_str = Dates.format(end_date, "yyyy-mm-dd")
+    ticker = ticker_info.ticker
+    actual_start_date = something(start_date, ticker_info.start_date)
+    actual_end_date = something(end_date, ticker_info.end_date)
 
     headers = Dict("Authorization" => "Token $api_key")
-
-    # Get metadata to verify date range
-    meta_url = "$base_url/$ticker"
-    meta_data = fetch_api_data(meta_url, nothing, headers)
-
-    # Adjust dates based on available data
-    end_date = min(Date(end_date_str), Date(meta_data.endDate))
-    start_date = max(Date(start_date_str), Date(meta_data.startDate))
-
-    # Fetch price data
     url = "$base_url/$ticker/prices"
     query = Dict(
-        "startDate" => Dates.format(start_date, "yyyy-mm-dd"),
-        "endDate" => Dates.format(end_date, "yyyy-mm-dd")
+        "startDate" => Dates.format(actual_start_date, "yyyy-mm-dd"),
+        "endDate" => Dates.format(actual_end_date, "yyyy-mm-dd")
     )
 
+    @info "Fetching price data for $ticker from $actual_start_date to $actual_end_date"
     data = fetch_api_data(url, query, headers)
+
     return DataFrame(data)
 end
 
-"""
-    get_date_range(ticker::String, start_date, end_date, headers::Dict, base_url::String)
-
-Helper function to get the date range for the ticker data.
-"""
-function get_date_range(ticker::String, start_date, end_date, headers::Dict, base_url::String)
-    if isnothing(end_date)
-        meta_url = "$base_url/$ticker"
-        meta_data = fetch_api_data(meta_url, nothing, headers)
-        end_date = meta_data.endDate
-        start_date = isnothing(start_date) ? meta_data.startDate : start_date
-    end
-    return start_date, end_date
-end
 
 """
-    fetch_api_data(url::String, query::Union{Dict,Nothing}, headers::Dict)
+    fetch_api_data(url::String, query::Dict, headers::Dict; max_retries::Int=3)
 
-Helper function to fetch data from the API.
+Fetch data from API with retry logic and error handling.
 """
 function fetch_api_data(
     url::String,
-    query::Union{Dict,Nothing},
+    query::Dict,
     headers::Dict;
     max_retries::Int = 3,
     retry_delay::Int = 2
 )
-    last_error = nothing
-
     for attempt in 1:max_retries
+        @info "API request attempt $attempt for URL: $url"
         try
-            response = isnothing(query) ?
-                HTTP.get(url, headers=headers) :
-                HTTP.get(url, query=query, headers=headers)
-
-            @assert response.status == 200 "Failed to fetch data from $url: $(String(response.body))"
+            response = HTTP.get(url, query=query, headers=headers)
+            @assert response.status == 200 "Failed to fetch data: $(String(response.body))"
 
             data = JSON3.read(String(response.body))
             @assert !isempty(data) "No data returned from $url"
 
             return data
         catch e
-            last_error = e
             @warn "API request attempt $attempt failed" exception=e
 
             if attempt < max_retries
                 sleep(retry_delay * 2^(attempt - 1))  # Exponential backoff
+            else
+                rethrow(e)
             end
         end
     end
-
-    error("Failed to fetch data after $max_retries attempts: $last_error")
 end
 
 
@@ -145,22 +149,13 @@ function download_tickers_duckdb(
         # Step 1: Download and unzip
         @info "Starting ticker download and processing..."
         download_latest_tickers(tickers_url, zip_file_path)
-
-        # Step 2: Process CSV into us_tickers
         process_tickers_csv(conn, csv_file)
 
-        # Step 3: Generate filtered tickers
+        # Step 2: Create filtered table and verify
         @info "Generating filtered tickers table..."
-        DBInterface.execute(conn, """
-        CREATE OR REPLACE TABLE us_tickers_filtered AS
-        SELECT * FROM us_tickers
-        WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-        AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
-        AND assetType IN ('Stock', 'ETF')
-        AND ticker NOT LIKE '%/%'
-        """)
+        create_filtered_tickers(conn)
 
-        # Verify the tables were created and have rows
+        # Step 3: Verify the tables were created and have rows
         result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers") |> DataFrame
         us_tickers_count = result[1, 1]
 
@@ -172,15 +167,14 @@ function download_tickers_duckdb(
         if filtered_count == 0
             @warn "us_tickers_filtered table was created but contains no rows"
         end
-
     catch e
         @error "Error in download_tickers_duckdb" exception=(e, catch_backtrace())
         rethrow(e)
     finally
-        # Step 4: Clean up temporary files
         cleanup_files(zip_file_path)
     end
 end
+
 
 """
     download_and_unzip(url::String, zip_file_path::String)
@@ -201,6 +195,25 @@ function download_latest_tickers(
     close(r)
     @info "Downloaded and unzipped: supported_tickers.csv"
 end
+
+
+"""
+    create_filtered_tickers(conn::DBInterface.Connection)
+
+Create filtered US tickers table.
+"""
+function create_filtered_tickers(conn::DBInterface.Connection)
+    @info "Generating filtered tickers table..."
+    DBInterface.execute(conn, """
+        CREATE OR REPLACE TABLE us_tickers_filtered AS
+        SELECT * FROM us_tickers
+        WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
+          AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
+          AND assetType IN ('Stock', 'ETF')
+          AND ticker NOT LIKE '%/%'
+    """)
+end
+
 
 """
     process_tickers_csv(
@@ -257,14 +270,7 @@ function generate_filtered_tickers(
         end
 
         # Create and populate the filtered table
-        DBInterface.execute(conn, """
-        CREATE OR REPLACE TABLE us_tickers_filtered AS
-        SELECT * FROM us_tickers
-         WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-           AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
-           AND assetType IN ('Stock', 'ETF')
-           AND ticker NOT LIKE '%/%'
-        """)
+        create_filtered_tickers(conn)
 
         # Verify the table was created and has rows
         result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered")
