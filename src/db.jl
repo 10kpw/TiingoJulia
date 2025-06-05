@@ -726,6 +726,29 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
         end
     end
 
+    # Ensure proper date type conversion
+    # Check if the date column needs conversion (could be String, Float64, etc.)
+    if !isa(data_with_ticker.date[1], Date)
+        # Try to convert to Date type
+        try
+            # If it's a string, parse it
+            if isa(data_with_ticker.date[1], String)
+                data_with_ticker.date = Date.(data_with_ticker.date)
+            # If it's a number, assume it's days since epoch
+            elseif isa(data_with_ticker.date[1], Number)
+                data_with_ticker.date = [Date(1970) + Day(Int(floor(d))) for d in data_with_ticker.date]
+            else
+                @warn "Could not automatically convert date type $(typeof(data_with_ticker.date[1]))"
+                # Try a generic conversion as last resort
+                data_with_ticker.date = Date.(data_with_ticker.date)
+            end
+        catch e
+            @error "Failed to convert date column in data for $ticker" exception=e
+            # Return zero to indicate failure
+            return 0
+        end
+    end
+
     # Select and reorder columns
     data_ordered = data_with_ticker[!, column_order]
 
@@ -733,24 +756,53 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
     temp_table = "temp_$(ticker)_$(rand(1000:9999))"
 
     try
-        # Create temporary table
+        # Create temporary table with explicit schema matching historical_data
         DBInterface.execute(conn, """
-            CREATE TEMPORARY TABLE $temp_table AS
-            SELECT * FROM historical_data WHERE 1=0
+            CREATE TEMPORARY TABLE $temp_table (
+                ticker VARCHAR,
+                date DATE,
+                close FLOAT,
+                high FLOAT,
+                low FLOAT,
+                open FLOAT,
+                volume BIGINT,
+                adjClose FLOAT,
+                adjHigh FLOAT,
+                adjLow FLOAT,
+                adjOpen FLOAT,
+                adjVolume BIGINT,
+                divCash FLOAT,
+                splitFactor FLOAT
+            )
         """)
 
-        # Insert data into temporary table using DuckDB's efficient bulk insert
-        # Convert DataFrame to the format expected by DuckDB
-        rows_data = [tuple(row...) for row in eachrow(data_ordered)]
-
-        placeholders = join(["?" for _ in 1:length(column_order)], ", ")
-        insert_stmt = "INSERT INTO $temp_table VALUES ($placeholders)"
-
+        # Insert data into temporary table using prepared statement
         DBInterface.execute(conn, "BEGIN TRANSACTION")
 
-        # Bulk insert all rows
-        for row_data in rows_data
-            DBInterface.execute(conn, insert_stmt, row_data)
+        # Bulk insert all rows - handle each row separately to ensure proper type conversion
+        for row in eachrow(data_ordered)
+            # Explicit type conversion for each column
+            values = (
+                String(row.ticker),
+                Date(row.date),  # Ensure this is a Date
+                Float64(coalesce(row.close, NaN)),
+                Float64(coalesce(row.high, NaN)),
+                Float64(coalesce(row.low, NaN)),
+                Float64(coalesce(row.open, NaN)),
+                Int64(coalesce(row.volume, 0)),
+                Float64(coalesce(row.adjClose, NaN)),
+                Float64(coalesce(row.adjHigh, NaN)),
+                Float64(coalesce(row.adjLow, NaN)),
+                Float64(coalesce(row.adjOpen, NaN)),
+                Int64(coalesce(row.adjVolume, 0)),
+                Float64(coalesce(row.divCash, 0.0)),
+                Float64(coalesce(row.splitFactor, 1.0))
+            )
+
+            # Insert with explicit placeholder types
+            DBInterface.execute(conn, """
+                INSERT INTO $temp_table VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, values)
         end
 
         # Perform upsert using SQL
