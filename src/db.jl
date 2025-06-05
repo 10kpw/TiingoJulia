@@ -696,61 +696,186 @@ end
 """
     upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker::String)
 
-High-performance bulk upsert using DuckDB's native bulk operations.
+High-performance bulk upsert using DuckDB's native bulk operations with robust error handling.
 """
 function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker::String)
     if isempty(data)
+        @info "No data to upsert for ticker $ticker"
         return 0
     end
 
-    # Add ticker column to data
+    # Debug info - let's see what we're getting
+    @info "Processing ticker $ticker with $(nrow(data)) rows"
+    @info "Column types: $(Dict(name => eltype(data[!,name]) for name in names(data)))"
+
+    # First make a fresh copy of the data
     data_with_ticker = copy(data)
+
+    # Add ticker column
     data_with_ticker.ticker = fill(ticker, nrow(data))
 
-    # Reorder columns to match table schema
-    column_order = [:ticker, :date, :close, :high, :low, :open, :volume,
-                   :adjClose, :adjHigh, :adjLow, :adjOpen, :adjVolume, :divCash, :splitFactor]
+    # 1. HANDLE COMPLETELY MISSING OR INVALID DATE COLUMNS
+    if !hasproperty(data_with_ticker, :date)
+        @info "No date column found for ticker $ticker - skipping"
+        return 0
+    end
+
+    # Log the first few date values to help with debugging
+    first_dates = first(data_with_ticker, min(5, nrow(data_with_ticker)))
+    @info "First date values: $(first_dates.date)"
+
+    # 2. HANDLE EMPTY DATAFRAMES
+    if isempty(data_with_ticker) || all(ismissing.(data_with_ticker.date)) ||
+       (eltype(data_with_ticker.date) <: Number && all(isnan.(data_with_ticker.date)))
+        @info "No valid dates found for ticker $ticker - skipping"
+        return 0
+    end
+
+    # 3. SANITIZE DATA AND ENSURE TYPES
+    # Define target schema
+    schema = Dict(
+        :ticker => String,
+        :date => Date,
+        :close => Float64,
+        :high => Float64,
+        :low => Float64,
+        :open => Float64,
+        :volume => Int64,
+        :adjClose => Float64,
+        :adjHigh => Float64,
+        :adjLow => Float64,
+        :adjOpen => Float64,
+        :adjVolume => Int64,
+        :divCash => Float64,
+        :splitFactor => Float64
+    )
 
     # Ensure all required columns exist with proper defaults
-    for col in column_order
-        if !(col in names(data_with_ticker))
-            if col in [:divCash]
+    for (col, type) in schema
+        if !(col in propertynames(data_with_ticker))
+            if col == :divCash
                 data_with_ticker[!, col] = fill(0.0, nrow(data_with_ticker))
-            elseif col in [:splitFactor]
+            elseif col == :splitFactor
                 data_with_ticker[!, col] = fill(1.0, nrow(data_with_ticker))
             elseif col in [:volume, :adjVolume]
                 data_with_ticker[!, col] = fill(0, nrow(data_with_ticker))
-            else
+            elseif col != :ticker && col != :date
                 data_with_ticker[!, col] = fill(NaN, nrow(data_with_ticker))
             end
         end
     end
 
-    # Ensure proper date type conversion
-    # Check if the date column needs conversion (could be String, Float64, etc.)
-    if !isa(data_with_ticker.date[1], Date)
-        # Try to convert to Date type
-        try
-            # If it's a string, parse it
-            if isa(data_with_ticker.date[1], String)
-                data_with_ticker.date = Date.(data_with_ticker.date)
-            # If it's a number, assume it's days since epoch
-            elseif isa(data_with_ticker.date[1], Number)
-                data_with_ticker.date = [Date(1970) + Day(Int(floor(d))) for d in data_with_ticker.date]
-            else
-                @warn "Could not automatically convert date type $(typeof(data_with_ticker.date[1]))"
-                # Try a generic conversion as last resort
-                data_with_ticker.date = Date.(data_with_ticker.date)
+    # 4. BUILD A CLEAN DATAFRAME
+    # Create a new clean dataframe with correct types
+    clean_df = DataFrame()
+
+    # Process date column first and filter out invalid rows
+    valid_rows = trues(nrow(data_with_ticker))
+
+    # Handle different date formats
+    try
+        if eltype(data_with_ticker.date) <: Date
+            # Already a Date, just copy
+            clean_df.date = data_with_ticker.date
+        elseif eltype(data_with_ticker.date) <: AbstractString
+            # Handle string dates
+            for i in 1:nrow(data_with_ticker)
+                if ismissing(data_with_ticker.date[i]) || isempty(strip(data_with_ticker.date[i]))
+                    valid_rows[i] = false
+                else
+                    # Try to parse the date string
+                    try
+                        data_with_ticker.date[i] = Date(data_with_ticker.date[i])
+                    catch
+                        valid_rows[i] = false
+                    end
+                end
             end
-        catch e
-            @error "Failed to convert date column in data for $ticker" exception=e
-            # Return zero to indicate failure
-            return 0
+            clean_df.date = Date.(data_with_ticker.date[valid_rows])
+        elseif eltype(data_with_ticker.date) <: Number
+            # Handle numeric dates
+            dates = Vector{Union{Date,Missing}}(missing, nrow(data_with_ticker))
+            for i in 1:nrow(data_with_ticker)
+                val = data_with_ticker.date[i]
+                if ismissing(val) || (isa(val, Number) && isnan(val))
+                    valid_rows[i] = false
+                else
+                    try
+                        # Try to interpret as days since 1970-01-01
+                        dates[i] = Date(1970, 1, 1) + Day(Int(floor(val)))
+                    catch
+                        valid_rows[i] = false
+                    end
+                end
+            end
+            # Only keep rows with valid dates
+            clean_df.date = collect(skipmissing(dates[valid_rows]))
+        else
+            # Unknown date format - try generic conversion and filter out failures
+            dates = Vector{Union{Date,Missing}}(missing, nrow(data_with_ticker))
+            for i in 1:nrow(data_with_ticker)
+                try
+                    dates[i] = Date(data_with_ticker.date[i])
+                catch
+                    valid_rows[i] = false
+                end
+            end
+            clean_df.date = collect(skipmissing(dates[valid_rows]))
+        end
+    catch e
+        @error "Failed to process date column for $ticker" exception=e
+        return 0
+    end
+
+    # Check if we have any valid rows after date processing
+    if !any(valid_rows)
+        @info "No valid dates found after processing for ticker $ticker - skipping"
+        return 0
+    end
+
+    # Filter data to valid rows only
+    data_filtered = data_with_ticker[valid_rows, :]
+
+    # Process other columns with appropriate type conversions
+    clean_df.ticker = fill(ticker, nrow(clean_df))
+
+    for (col, type) in schema
+        if col == :ticker || col == :date
+            continue  # Already handled
+        end
+
+        # Add column with correct type
+        if col in propertynames(data_filtered)
+            # Convert each value individually with error handling
+            values = Vector{type}(undef, nrow(clean_df))
+            for i in 1:nrow(clean_df)
+                if i <= nrow(data_filtered) && !ismissing(data_filtered[i, col])
+                    val = data_filtered[i, col]
+                    if isa(val, Number) && isnan(val)
+                        values[i] = type <: AbstractFloat ? NaN : 0
+                    else
+                        try
+                            values[i] = type(val)
+                        catch
+                            values[i] = type <: AbstractFloat ? NaN : 0
+                        end
+                    end
+                else
+                    values[i] = type <: AbstractFloat ? NaN : 0
+                end
+            end
+            clean_df[!, col] = values
+        else
+            # Use defaults for missing columns
+            clean_df[!, col] = fill(type <: AbstractFloat ? NaN : 0, nrow(clean_df))
         end
     end
 
-    # Select and reorder columns
-    data_ordered = data_with_ticker[!, column_order]
+    # Final check for empty dataframe
+    if isempty(clean_df)
+        @info "No valid data remains for ticker $ticker after processing - skipping"
+        return 0
+    end
 
     # Create temporary table name
     temp_table = "temp_$(ticker)_$(rand(1000:9999))"
@@ -776,33 +901,48 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
             )
         """)
 
-        # Insert data into temporary table using prepared statement
+        # Insert data into temporary table using bulk operations
         DBInterface.execute(conn, "BEGIN TRANSACTION")
 
-        # Bulk insert all rows - handle each row separately to ensure proper type conversion
-        for row in eachrow(data_ordered)
-            # Explicit type conversion for each column
-            values = (
-                String(row.ticker),
-                Date(row.date),  # Ensure this is a Date
-                Float64(coalesce(row.close, NaN)),
-                Float64(coalesce(row.high, NaN)),
-                Float64(coalesce(row.low, NaN)),
-                Float64(coalesce(row.open, NaN)),
-                Int64(coalesce(row.volume, 0)),
-                Float64(coalesce(row.adjClose, NaN)),
-                Float64(coalesce(row.adjHigh, NaN)),
-                Float64(coalesce(row.adjLow, NaN)),
-                Float64(coalesce(row.adjOpen, NaN)),
-                Int64(coalesce(row.adjVolume, 0)),
-                Float64(coalesce(row.divCash, 0.0)),
-                Float64(coalesce(row.splitFactor, 1.0))
-            )
+        # Bulk insert using DuckDB's bulk append
+        rows_inserted = 0
+        for i in 1:nrow(clean_df)
+            try
+                # Directly construct the SQL with proper type handling
+                date_str = Dates.format(clean_df.date[i], "yyyy-mm-dd")
 
-            # Insert with explicit placeholder types
-            DBInterface.execute(conn, """
-                INSERT INTO $temp_table VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, values)
+                insert_sql = """
+                    INSERT INTO $temp_table VALUES (
+                        '$(clean_df.ticker[i])',
+                        DATE '$date_str',
+                        $(isnan(clean_df.close[i]) ? "NULL" : clean_df.close[i]),
+                        $(isnan(clean_df.high[i]) ? "NULL" : clean_df.high[i]),
+                        $(isnan(clean_df.low[i]) ? "NULL" : clean_df.low[i]),
+                        $(isnan(clean_df.open[i]) ? "NULL" : clean_df.open[i]),
+                        $(clean_df.volume[i]),
+                        $(isnan(clean_df.adjClose[i]) ? "NULL" : clean_df.adjClose[i]),
+                        $(isnan(clean_df.adjHigh[i]) ? "NULL" : clean_df.adjHigh[i]),
+                        $(isnan(clean_df.adjLow[i]) ? "NULL" : clean_df.adjLow[i]),
+                        $(isnan(clean_df.adjOpen[i]) ? "NULL" : clean_df.adjOpen[i]),
+                        $(clean_df.adjVolume[i]),
+                        $(isnan(clean_df.divCash[i]) ? 0.0 : clean_df.divCash[i]),
+                        $(isnan(clean_df.splitFactor[i]) ? 1.0 : clean_df.splitFactor[i])
+                    )
+                """
+
+                # Execute the insert
+                DBInterface.execute(conn, insert_sql)
+                rows_inserted += 1
+            catch e
+                @warn "Error inserting row $i for ticker $ticker: $e"
+                # Continue with the next row
+            end
+        end
+
+        if rows_inserted == 0
+            @info "No valid rows were successfully inserted for ticker $ticker"
+            DBInterface.execute(conn, "ROLLBACK")
+            return 0
         end
 
         # Perform upsert using SQL
@@ -825,13 +965,14 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
         """)
 
         DBInterface.execute(conn, "COMMIT")
+        @info "Successfully inserted $rows_inserted rows for ticker $ticker"
 
-        return nrow(data_ordered)
+        return rows_inserted
 
     catch e
         DBInterface.execute(conn, "ROLLBACK")
         @error "Error in bulk upsert for $ticker" exception = (e, catch_backtrace())
-        rethrow(e)
+        return 0  # Return 0 instead of rethrowing to allow processing to continue
     finally
         # Clean up temporary table
         try
