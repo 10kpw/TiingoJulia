@@ -1027,7 +1027,36 @@ end
 Optimize database settings for better performance.
 """
 function optimize_database(conn::DuckDBConnection)
-    # Get available system memory and use up to 75% of it
+    # Check if running in CI environment
+    is_ci = haskey(ENV, "CI") || haskey(ENV, "GITHUB_ACTIONS")
+
+    if is_ci
+        # Use conservative settings in CI environment
+        @info "Running in CI environment, using conservative settings"
+        optimizations = [
+            "SET memory_limit = '1GB'",
+            "SET threads = $(min(2, Threads.nthreads()))",
+            "SET enable_progress_bar = false",
+            "SET preserve_insertion_order = false",
+            "SET temp_directory = '.duckdb_temp'",
+        ]
+
+        for opt in optimizations
+            try
+                DBInterface.execute(conn, opt)
+                @info "Applied CI optimization: $opt"
+            catch e
+                @warn "Failed to apply optimization $opt: $e"
+            end
+        end
+
+        # Create temp directory if it doesn't exist
+        mkpath(".duckdb_temp")
+
+        return
+    end
+
+    # Production environment optimization
     try
         # Determine available memory (platform-specific)
         mem_limit = if Sys.isapple()
