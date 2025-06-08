@@ -209,8 +209,8 @@ end
 
 
 """
-    update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key();
-                     add_missing::Bool = true, use_parallel::Bool = true, batch_size::Int = 50, max_concurrent::Int = 10)
+update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key();
+add_missing::Bool = true, use_parallel::Bool = true, batch_size::Int = 50, max_concurrent::Int = 10)
 
 Update historical data for multiple tickers. This is a wrapper that can use either the original sequential
 method or the new parallel method for better performance.
@@ -466,8 +466,8 @@ ON CONFLICT (ticker, date) DO UPDATE SET
 end
 
 """
-    update_historical_parallel(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key();
-                              batch_size::Int = 50, max_concurrent::Int = 10, add_missing::Bool = true)
+update_historical_parallel(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key();
+batch_size::Int = 50, max_concurrent::Int = 10, add_missing::Bool = true)
 
 High-performance version of update_historical using parallel API calls and batch database operations.
 
