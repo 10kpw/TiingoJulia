@@ -209,8 +209,8 @@ end
 
 
 """
-    update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key();
-                     add_missing::Bool = true, use_parallel::Bool = true, batch_size::Int = 50, max_concurrent::Int = 10)
+update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key();
+add_missing::Bool = true, use_parallel::Bool = true, batch_size::Int = 50, max_concurrent::Int = 10)
 
 Update historical data for multiple tickers. This is a wrapper that can use either the original sequential
 method or the new parallel method for better performance.
@@ -466,8 +466,8 @@ ON CONFLICT (ticker, date) DO UPDATE SET
 end
 
 """
-    update_historical_parallel(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key();
-                              batch_size::Int = 50, max_concurrent::Int = 10, add_missing::Bool = true)
+update_historical_parallel(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key();
+batch_size::Int = 50, max_concurrent::Int = 10, add_missing::Bool = true)
 
 High-performance version of update_historical using parallel API calls and batch database operations.
 
@@ -615,32 +615,48 @@ Fetch data for a batch of tickers using parallel API calls.
 function fetch_batch_data_parallel(batch::DataFrame, latest_dates_dict::Dict, latest_market_date::Date,
                                  api_key::String, max_concurrent::Int)
 
-    # Create tasks for parallel execution
-    tasks = []
-    semaphore = Base.Semaphore(max_concurrent)  # Limit concurrent requests
+    # Use a channel as a job queue with bounded buffer
+    job_channel = Channel{DataFrameRow}(max_concurrent)
+    result_channel = Channel{Tuple{String, DataFrame, Symbol}}(nrow(batch))
 
-    for row in eachrow(batch)
-        task = @async begin
-            Base.acquire(semaphore)
-            try
-                fetch_single_ticker_data(row, latest_dates_dict, latest_market_date, api_key)
-            finally
-                Base.release(semaphore)
+    # Start worker tasks
+    workers = []
+    for _ in 1:min(max_concurrent, Threads.nthreads())
+        worker = Threads.@spawn begin
+            for row in job_channel
+                try
+                    result = fetch_single_ticker_data(row, latest_dates_dict, latest_market_date, api_key)
+                    put!(result_channel, result)
+                catch e
+                    ticker = row.ticker
+                    @warn "Failed to process ticker $ticker: $e"
+                    put!(result_channel, (ticker, DataFrame(), :error))
+                end
             end
         end
-        push!(tasks, task)
+        push!(workers, worker)
     end
 
-    # Wait for all tasks to complete
-    results = []
-    for task in tasks
-        try
-            result = fetch(task)
-            push!(results, result)
-        catch e
-            @warn "Task failed: $e"
-            push!(results, ("UNKNOWN", DataFrame(), :error))
+    # Feed the job channel with work
+    @async begin
+        for row in eachrow(batch)
+            put!(job_channel, row)
         end
+        close(job_channel)
+    end
+
+    # Collect results
+    results = []
+    for _ in 1:nrow(batch)
+        push!(results, take!(result_channel))
+    end
+
+    # Clean up
+    close(result_channel)
+
+    # Wait for all workers to finish
+    for worker in workers
+        wait(worker)
     end
 
     return results
@@ -1011,20 +1027,88 @@ end
 Optimize database settings for better performance.
 """
 function optimize_database(conn::DuckDBConnection)
-    optimizations = [
-        "SET memory_limit = '4GB'",
-        "SET threads = $(Threads.nthreads())",
-        "SET enable_progress_bar = false",
-        "SET preserve_insertion_order = false",
-    ]
+    # Check if running in CI environment
+    is_ci = haskey(ENV, "CI") || haskey(ENV, "GITHUB_ACTIONS")
 
-    for opt in optimizations
-        try
-            DBInterface.execute(conn, opt)
-            @info "Applied optimization: $opt"
-        catch e
-            @warn "Failed to apply optimization $opt: $e"
+    if is_ci
+        # Use conservative settings in CI environment
+        @info "Running in CI environment, using conservative settings"
+        optimizations = [
+            "SET memory_limit = '1GB'",
+            "SET threads = $(min(2, Threads.nthreads()))",
+            "SET enable_progress_bar = false",
+            "SET preserve_insertion_order = false",
+            "SET temp_directory = '.duckdb_temp'",
+        ]
+
+        for opt in optimizations
+            try
+                DBInterface.execute(conn, opt)
+                @info "Applied CI optimization: $opt"
+            catch e
+                @warn "Failed to apply optimization $opt: $e"
+            end
         end
+
+        # Create temp directory if it doesn't exist
+        mkpath(".duckdb_temp")
+
+        return
+    end
+
+    # Production environment optimization
+    try
+        # Determine available memory (platform-specific)
+        mem_limit = if Sys.isapple()
+            # For macOS, use 75% of total memory up to 16GB
+            total_mem = parse(Int, read(`sysctl -n hw.memsize`, String))
+            mem_limit_gb = min(16, round(Int, total_mem / 1024^3 * 0.75))
+            "$(mem_limit_gb)GB"
+        elseif Sys.islinux()
+            # For Linux, read from /proc/meminfo
+            mem_info = read(`cat /proc/meminfo`, String)
+            mem_total_line = match(r"MemTotal:\s+(\d+)\s+kB", mem_info)
+            if mem_total_line !== nothing
+                total_mem_kb = parse(Int, mem_total_line.captures[1])
+                mem_limit_gb = min(16, round(Int, total_mem_kb / 1024^2 * 0.75))
+                "$(mem_limit_gb)GB"
+            else
+                "4GB" # Fallback
+            end
+        else
+            # Default for other platforms
+            "4GB"
+        end
+
+        optimizations = [
+            "SET memory_limit = '$(mem_limit)'",
+            "SET threads = $(Threads.nthreads())",
+            "SET enable_progress_bar = false",
+            "SET preserve_insertion_order = false",
+            "SET temp_directory = '.duckdb_temp'",
+            "SET checkpoint_threshold = '1GB'",
+            "SET worker_threads = $(max(1, Threads.nthreads() - 1))",
+            "SET experimental_parallel_csv = true",
+        ]
+
+        for opt in optimizations
+            try
+                DBInterface.execute(conn, opt)
+                @info "Applied optimization: $opt"
+            catch e
+                @warn "Failed to apply optimization $opt: $e"
+            end
+        end
+
+        # Create temp directory if it doesn't exist
+        mkpath(".duckdb_temp")
+
+        @info "Database optimized with $(Threads.nthreads()) threads and memory limit of $(mem_limit)"
+    catch e
+        @warn "Failed to fully optimize database: $e"
+        # Apply basic optimizations as fallback
+        DBInterface.execute(conn, "SET threads = $(Threads.nthreads())")
+        DBInterface.execute(conn, "SET memory_limit = '4GB'")
     end
 end
 

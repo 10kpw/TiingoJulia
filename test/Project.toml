@@ -1,2 +1,9 @@
 [deps]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Mocking = "78c3b35d-d492-501b-9361-3d52fe80e533"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+DuckDB = "d2f5444f-75bc-4fdf-ac35-56f514c445e1"
+DBInterface = "a10d1c49-ce27-4219-8d33-6db1a4562965"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
