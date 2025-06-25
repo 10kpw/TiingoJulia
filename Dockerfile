@@ -17,13 +17,22 @@ RUN apt-get update && apt-get install -y \
     libgfortran5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Julia
+# Install Julia with architecture detection
 ENV JULIA_VERSION=1.10.2
-RUN wget https://julialang-s3.julialang.org/bin/linux/x64/1.10/julia-${JULIA_VERSION}-linux-x86_64.tar.gz && \
-    tar -xvzf julia-${JULIA_VERSION}-linux-x86_64.tar.gz && \
+
+# Detect architecture and set appropriate Julia download URL
+RUN if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then \
+        JULIA_ARCH="aarch64"; \
+        JULIA_URL="https://julialang-s3.julialang.org/bin/linux/aarch64/1.10/julia-${JULIA_VERSION}-linux-aarch64.tar.gz"; \
+    else \
+        JULIA_ARCH="x86_64"; \
+        JULIA_URL="https://julialang-s3.julialang.org/bin/linux/x64/1.10/julia-${JULIA_VERSION}-linux-x86_64.tar.gz"; \
+    fi && \
+    wget $JULIA_URL && \
+    tar -xvzf julia-${JULIA_VERSION}-linux-${JULIA_ARCH}.tar.gz && \
     mv julia-${JULIA_VERSION} /opt/julia && \
     ln -s /opt/julia/bin/julia /usr/local/bin/julia && \
-    rm julia-${JULIA_VERSION}-linux-x86_64.tar.gz
+    rm julia-${JULIA_VERSION}-linux-${JULIA_ARCH}.tar.gz
 
 # Set environment variable for Julia
 ENV PATH="/opt/julia/bin:$PATH"
