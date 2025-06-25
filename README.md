@@ -68,3 +68,4 @@ update_historical(conn, tickers;
 
 See the [Performance Guide](PERFORMANCE.md) for more details and tuning parameters.
 
+
