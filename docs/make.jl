@@ -12,13 +12,13 @@ const numbered_pages = [
 makedocs(;
     modules = [TiingoJulia],
     authors = "Kojiroh <kojiroh.homma@gmail.com> and contributors",
-    repo = "https://github.com/10kpw/TiingoJulia.jl/blob/{commit}{path}#{line}",
-    sitename = "TiingoJulia.jl",
-    format = Documenter.HTML(; canonical = "https://10kpw.github.io/TiingoJulia.jl"),
+    repo = "https://github.com/10kpw/TiingoJulia/blob/{commit}{path}#{line}",
+    sitename = "TiingoJulia",
+    format = Documenter.HTML(; canonical = "https://10kpw.github.io/TiingoJulia"),
     pages = ["index.md"; numbered_pages],
 )
 
 deploydocs(;
-    repo = "github.com/10kpw/TiingoJulia.jl",
+    repo = "github.com/10kpw/TiingoJulia",
     devbranch = "main"
 )

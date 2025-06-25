@@ -1,21 +1,21 @@
 # TiingoJulia
 
 <!-- For private repos, use shields.io with authentication -->
-[![Tests](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia.jl/Test.yml?branch=main&label=Tests)](https://github.com/10kpw/TiingoJulia.jl/actions)
-[![Documentation](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia.jl/Docs.yml?branch=main&label=Docs)](https://10kpw.github.io/TiingoJulia.jl/dev)
-[![Lint](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia.jl/Lint.yml?branch=main&label=Lint)](https://github.com/10kpw/TiingoJulia.jl/actions)
+[![Tests](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia/Test.yml?branch=main&label=Tests)](https://github.com/10kpw/TiingoJulia/actions)
+[![Documentation](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia/Docs.yml?branch=main&label=Docs)](https://10kpw.github.io/TiingoJulia/dev)
+[![Lint](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia/Lint.yml?branch=main&label=Lint)](https://github.com/10kpw/TiingoJulia/actions)
 
 <!-- Add note about private repository -->
 > **Note**: This is a private repository. Access to links and badges requires appropriate permissions.
 
 ## How to Cite
 
-If you use TiingoJulia.jl in your work, please cite using the reference given in [CITATION.cff](https://github.com/10kpw/TiingoJulia.jl/blob/main/CITATION.cff).
+If you use TiingoJulia.jl in your work, please cite using the reference given in [CITATION.cff](https://github.com/10kpw/TiingoJulia/blob/main/CITATION.cff).
 
 
 ## Contributing
 
-If you want to make contributions of any kind, please first that a look into our [contributing guide directly on GitHub](docs/src/90-contributing.md) or the [contributing page on the website](https://10kpw.github.io/TiingoJulia.jl/dev/90-contributing/).
+If you want to make contributions of any kind, please first that a look into our [contributing guide directly on GitHub](docs/src/90-contributing.md) or the [contributing page on the website](https://10kpw.github.io/TiingoJulia/dev/90-contributing/).
 
 
 ---
