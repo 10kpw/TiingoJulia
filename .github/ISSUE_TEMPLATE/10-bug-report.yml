@@ -12,7 +12,7 @@ body:
 
         - There is not an [existing issue](https://github.com/10kpw/TiingoJulia/issues) with the same question
 
-        - You have read the [contributing guide](https://10kpw.github.io/TiingoJulia/dev/90-contributing/)
+        - You have read the [contributing guide](docs/src/90-contributing.md)
 
 
         - You are following the [code of conduct](https://github.com/10kpw/TiingoJulia/blob/main/CODE_OF_CONDUCT.md)
