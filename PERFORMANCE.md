@@ -91,11 +91,13 @@ create_indexes(conn)
 ### Parameter Tuning
 
 #### Batch Size
+
 - **Small datasets (< 100 tickers)**: `batch_size = 20-50`
 - **Medium datasets (100-1000 tickers)**: `batch_size = 50-100`
 - **Large datasets (> 1000 tickers)**: `batch_size = 100-200`
 
 #### Concurrent Requests
+
 - **Conservative (avoid rate limits)**: `max_concurrent = 5-10`
 - **Balanced**: `max_concurrent = 10-15`
 - **Aggressive (fast network)**: `max_concurrent = 15-25`
@@ -232,6 +234,7 @@ julia examples/performance_comparison.jl
 ```
 
 This script will:
+
 - Compare sequential vs parallel processing
 - Benchmark bulk vs row-by-row database operations
 - Provide recommendations for your specific environment

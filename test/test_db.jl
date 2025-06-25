@@ -21,7 +21,11 @@ function mock_fetch_single_ticker_data(row, latest_dates_dict, latest_market_dat
 
     # Create mock data
     mock_data = DataFrame(
-        date = [latest_market_date - Day(5), latest_market_date - Day(4), latest_market_date - Day(3)],
+        date = [
+            latest_market_date - Day(5),
+            latest_market_date - Day(4),
+            latest_market_date - Day(3),
+        ],
         close = [100.0, 101.0, 102.0],
         high = [105.0, 106.0, 107.0],
         low = [95.0, 96.0, 97.0],
@@ -33,7 +37,7 @@ function mock_fetch_single_ticker_data(row, latest_dates_dict, latest_market_dat
         adjOpen = [98.0, 99.0, 100.0],
         adjVolume = [1000000, 1100000, 1200000],
         divCash = [0.0, 0.0, 0.0],
-        splitFactor = [1.0, 1.0, 1.0]
+        splitFactor = [1.0, 1.0, 1.0],
     )
 
     if haskey(latest_dates_dict, ticker)
@@ -83,7 +87,8 @@ end
         @test nrow(tables) == 3
 
         # Test table schemas
-        historical_schema = DBInterface.execute(conn, "DESCRIBE historical_data") |> DataFrame
+        historical_schema =
+            DBInterface.execute(conn, "DESCRIBE historical_data") |> DataFrame
         @test "ticker" in historical_schema.column_name
         @test "date" in historical_schema.column_name
         @test "close" in historical_schema.column_name
@@ -101,15 +106,18 @@ end
             assetType = ["Stock", "Stock"],
             priceCurrency = ["USD", "USD"],
             startDate = [Date("2000-01-01"), Date("2004-08-19")],
-            endDate = [Date("2023-12-31"), Date("2023-12-31")]
+            endDate = [Date("2023-12-31"), Date("2023-12-31")],
         )
 
         # Test updating us_tickers
-        DBInterface.execute(conn, """
-            INSERT INTO us_tickers
-            VALUES ('AAPL', 'NASDAQ', 'Stock', 'USD', '2000-01-01', '2023-12-31'),
-                   ('GOOGL', 'NASDAQ', 'Stock', 'USD', '2004-08-19', '2023-12-31')
-        """)
+        DBInterface.execute(
+            conn,
+            """
+    INSERT INTO us_tickers
+    VALUES ('AAPL', 'NASDAQ', 'Stock', 'USD', '2000-01-01', '2023-12-31'),
+           ('GOOGL', 'NASDAQ', 'Stock', 'USD', '2004-08-19', '2023-12-31')
+""",
+        )
 
         # Test retrieving tickers
         all_tickers = get_tickers_all(conn)
@@ -130,7 +138,7 @@ end
             adjOpen = [150.0, 151.0],
             adjVolume = [1000000, 1100000],
             divCash = [0.0, 0.0],
-            splitFactor = [1.0, 1.0]
+            splitFactor = [1.0, 1.0],
         )
 
         # Test upserting stock data
@@ -138,11 +146,14 @@ end
         @test rows_updated == 2
 
         # Verify inserted data
-        result = DBInterface.execute(conn, """
-            SELECT * FROM historical_data
-            WHERE ticker = 'AAPL'
-            ORDER BY date
-        """) |> DataFrame
+        result = DBInterface.execute(
+            conn,
+            """
+    SELECT * FROM historical_data
+    WHERE ticker = 'AAPL'
+    ORDER BY date
+""",
+        ) |> DataFrame
         @test nrow(result) == 2
         @test result[1, :close] ≈ 150.0
         @test result[2, :close] ≈ 151.0
@@ -157,10 +168,13 @@ end
         @test_throws Exception DBInterface.execute(conn, "SELECT * FROM nonexistent_table")
 
         # Test data type mismatch
-        @test_throws Exception DBInterface.execute(conn, """
-            INSERT INTO historical_data (ticker, date, close)
-            VALUES ('AAPL', 'invalid_date', 'invalid_price')
-        """)
+        @test_throws Exception DBInterface.execute(
+            conn,
+            """
+    INSERT INTO historical_data (ticker, date, close)
+    VALUES ('AAPL', 'invalid_date', 'invalid_price')
+""",
+        )
 
         close_duckdb(conn)
     end
@@ -193,7 +207,7 @@ end
         exchange = ["NASDAQ", "NASDAQ", "NASDAQ"],
         asset_type = ["Stock", "Stock", "Stock"],
         start_date = [Date("2020-01-01"), Date("2020-01-01"), Date("2020-01-01")],
-        end_date = [Date("2023-01-01"), Date("2023-01-01"), Date("2023-01-01")]
+        end_date = [Date("2023-01-01"), Date("2023-01-01"), Date("2023-01-01")],
     )
 
     # Create the test database
@@ -207,7 +221,7 @@ end
 
     # Test bulk upsert
     sample_data = DataFrame(
-        date = [Date("2023-01-01") + Day(i) for i in 1:10],
+        date = [Date("2023-01-01") + Day(i) for i = 1:10],
         close = rand(100:200, 10),
         high = rand(100:200, 10),
         low = rand(100:200, 10),
@@ -219,14 +233,18 @@ end
         adjOpen = rand(100:200, 10),
         adjVolume = rand(1000000:5000000, 10),
         divCash = zeros(10),
-        splitFactor = ones(10)
+        splitFactor = ones(10),
     )
 
     # Test bulk upsert with mock data
     @test_nowarn upsert_stock_data_bulk(conn, sample_data, "TEST_TICKER")
 
     # Verify the data was inserted
-    result = DBInterface.execute(conn, "SELECT COUNT(*) FROM historical_data WHERE ticker = 'TEST_TICKER'") |> DataFrame
+    result =
+        DBInterface.execute(
+            conn,
+            "SELECT COUNT(*) FROM historical_data WHERE ticker = 'TEST_TICKER'",
+        ) |> DataFrame
     @test result[1, 1] == 10
 
     # Test filter_tickers_needing_update function
@@ -236,7 +254,7 @@ end
     filtered_tickers = TiingoJulia.filter_tickers_needing_update(
         DataFrame(ticker = ["TEST_TICKER", "NEW_TICKER"]),
         latest_dates_dict,
-        latest_market_date
+        latest_market_date,
     )
 
     @test nrow(filtered_tickers) == 2
@@ -249,8 +267,17 @@ end
         Mocking.activate()
 
         # Create a patch for fetch_single_ticker_data
-        patch = @patch TiingoJulia.fetch_single_ticker_data(row, latest_dates_dict, latest_market_date, api_key) =
-            mock_fetch_single_ticker_data(row, latest_dates_dict, latest_market_date, api_key)
+        patch = @patch TiingoJulia.fetch_single_ticker_data(
+            row,
+            latest_dates_dict,
+            latest_market_date,
+            api_key,
+        ) = mock_fetch_single_ticker_data(
+            row,
+            latest_dates_dict,
+            latest_market_date,
+            api_key,
+        )
 
         apply(patch) do
             # Test the parallel data fetching
@@ -259,7 +286,7 @@ end
                 exchange = fill("NASDAQ", 5),
                 asset_type = fill("Stock", 5),
                 start_date = fill(Date("2020-01-01"), 5),
-                end_date = fill(Date("2023-01-01"), 5)
+                end_date = fill(Date("2023-01-01"), 5),
             )
 
             # Test with various concurrency settings
@@ -269,7 +296,7 @@ end
                     latest_dates_dict,
                     latest_market_date,
                     "mock-api-key",
-                    max_concurrent
+                    max_concurrent,
                 )
 
                 # Verify results

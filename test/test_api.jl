@@ -22,7 +22,7 @@ include("../src/api.jl")
 
     @testset "get_ticker_data" begin
         # Mock the HTTP.get function to return a predefined response
-        function mock_http_get(url::String; headers::Dict, query::Dict=Dict())
+        function mock_http_get(url::String; headers::Dict, query::Dict = Dict())
             @test !isempty(headers["Authorization"])
             @test haskey(query, "startDate")
             @test haskey(query, "endDate")
@@ -61,21 +61,37 @@ include("../src/api.jl")
 
     @testset "fetch_api_data" begin
         # Test successful API call
-        function mock_successful_http_get(url::String; headers::Dict, query::Union{Dict,Nothing}=nothing)
+        function mock_successful_http_get(
+            url::String;
+            headers::Dict,
+            query::Union{Dict,Nothing} = nothing,
+        )
             return HTTP.Response(200, """{"key": "value"}""")
         end
 
         HTTP.get = mock_successful_http_get
-        result = fetch_api_data("http://example.com", Dict("param" => "value"), Dict("Authorization" => "Token"))
+        result = fetch_api_data(
+            "http://example.com",
+            Dict("param" => "value"),
+            Dict("Authorization" => "Token"),
+        )
         @test result == Dict("key" => "value")
 
         # Test failed API call
-        function mock_failed_http_get(url::String; headers::Dict, query::Union{Dict,Nothing}=nothing)
+        function mock_failed_http_get(
+            url::String;
+            headers::Dict,
+            query::Union{Dict,Nothing} = nothing,
+        )
             return HTTP.Response(404, "Not Found")
         end
 
         HTTP.get = mock_failed_http_get
-        @test_throws ErrorException fetch_api_data("http://example.com", Dict("param" => "value"), Dict("Authorization" => "Token"))
+        @test_throws ErrorException fetch_api_data(
+            "http://example.com",
+            Dict("param" => "value"),
+            Dict("Authorization" => "Token"),
+        )
     end
 
     @testset "download_tickers_duckdb" begin
@@ -120,27 +136,35 @@ include("../src/api.jl")
         conn = DBInterface.connect(DuckDB.DB)
 
         # Create and populate a mock us_tickers table
-        DBInterface.execute(conn, """
-            CREATE TABLE us_tickers (
-                ticker STRING,
-                exchange STRING,
-                assetType STRING,
-                endDate DATE
-            )
-        """)
-        DBInterface.execute(conn, """
-            INSERT INTO us_tickers VALUES
-            ('AAPL', 'NYSE', 'Stock', '2023-05-01'),
-            ('GOOGL', 'NASDAQ', 'Stock', '2023-05-01'),
-            ('VTI', 'NYSE ARCA', 'ETF', '2023-05-01'),
-            ('INVALID', 'OTC', 'Stock', '2023-05-01')
-        """)
+        DBInterface.execute(
+            conn,
+            """
+    CREATE TABLE us_tickers (
+        ticker STRING,
+        exchange STRING,
+        assetType STRING,
+        endDate DATE
+    )
+""",
+        )
+        DBInterface.execute(
+            conn,
+            """
+    INSERT INTO us_tickers VALUES
+    ('AAPL', 'NYSE', 'Stock', '2023-05-01'),
+    ('GOOGL', 'NASDAQ', 'Stock', '2023-05-01'),
+    ('VTI', 'NYSE ARCA', 'ETF', '2023-05-01'),
+    ('INVALID', 'OTC', 'Stock', '2023-05-01')
+""",
+        )
 
         # Run the function
         generate_filtered_tickers(conn)
 
         # Check the results
-        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered") |> DataFrame
+        result =
+            DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered") |>
+            DataFrame
         @test result[1, 1] == 3  # AAPL, GOOGL, and VTI should be included
 
         # Clean up
