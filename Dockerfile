@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Julia with architecture detection
-ENV JULIA_VERSION=1.10.2
+ENV JULIA_VERSION=1.10.9
 
 # Detect architecture and set appropriate Julia download URL
 RUN if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then \
