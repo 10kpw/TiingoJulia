@@ -10,13 +10,13 @@ body:
 
         Please, before submitting, make sure that:
 
-        - There is not an [existing issue](https://github.com/10kpw/TiingoJulia.jl/issues) with the same question
-        
-        - You have read the [contributing guide](https://10kpw.github.io/TiingoJulia.jl/dev/90-contributing/)
-        
-        
-        - You are following the [code of conduct](https://github.com/10kpw/TiingoJulia.jl/blob/main/CODE_OF_CONDUCT.md)
-        
+        - There is not an [existing issue](https://github.com/10kpw/TiingoJulia/issues) with the same question
+
+        - You have read the [contributing guide](https://10kpw.github.io/TiingoJulia/dev/90-contributing/)
+
+
+        - You are following the [code of conduct](https://github.com/10kpw/TiingoJulia/blob/main/CODE_OF_CONDUCT.md)
+
 
         The form below should help you in filling out this issue.
   - type: textarea
