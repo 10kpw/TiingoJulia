@@ -1,44 +1,44 @@
 name: Lint and Link Check
 
 on:
-  push:
-    branches: [main]
-    tags: ["*"]
-  pull_request:
+    push:
+        branches: [main]
+        tags: ["*"]
+    pull_request:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
-  lint:
-    name: Linting
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
-        with:
-          version: "1"
-      - uses: julia-actions/cache@v2
-      - name: Install JuliaFormatter
-        run: julia -e 'using Pkg; pkg"add JuliaFormatter"'
-      - uses: actions/setup-python@v5
-        with:
-          cache: "pip"
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/pre-commit
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('**/.pre-commit-config.yaml') }}
-      - run: pip install pre-commit
-      - name: Run pre-commit
-        run: SKIP=no-commit-to-branch pre-commit run -a
+    lint:
+        name: Linting
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: julia-actions/setup-julia@v2
+              with:
+                  version: "1"
+            - uses: julia-actions/cache@v2
+            - name: Install JuliaFormatter
+              run: julia -e 'using Pkg; pkg"add JuliaFormatter"'
+            - uses: actions/setup-python@v5
+              with:
+                  cache: "pip"
+            - uses: actions/cache@v4
+              with:
+                  path: ~/.cache/pre-commit
+                  key: ${{ runner.os }}-pre-commit-${{ hashFiles('**/.pre-commit-config.yaml') }}
+            - run: pip install pre-commit
+            - name: Run pre-commit
+              run: SKIP=no-commit-to-branch pre-commit run -a
 
-  link-checker:
-    name: Link Checker
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: lycheeverse/lychee-action@v1
-        with:
-          fail: true
-          args: --config '.lychee.toml' .
+    link-checker:
+        name: Link Checker
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: lycheeverse/lychee-action@v1
+              with:
+                  fail: true
+                  args: --config '.lychee.toml' .

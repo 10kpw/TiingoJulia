@@ -20,5 +20,3 @@ To request access, please contact the repository owners.
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 ```
-
-

@@ -237,10 +237,21 @@ function update_historical(
     max_concurrent::Int = 10,
 )
     if use_parallel
-        return update_historical_parallel(conn, tickers, api_key;
-                                        batch_size=batch_size, max_concurrent=max_concurrent, add_missing=add_missing)
+        return update_historical_parallel(
+            conn,
+            tickers,
+            api_key;
+            batch_size = batch_size,
+            max_concurrent = max_concurrent,
+            add_missing = add_missing,
+        )
     else
-        return update_historical_sequential(conn, tickers, api_key; add_missing=add_missing)
+        return update_historical_sequential(
+            conn,
+            tickers,
+            api_key;
+            add_missing = add_missing,
+        )
     end
 end
 
@@ -256,15 +267,16 @@ function update_historical_sequential(
     add_missing::Bool = true,
 )
     latest_dates_df = get_latest_dates(conn)
-    latest_market_date = DBInterface.execute(
-        conn,
-        """
-SELECT MAX(endDate)
-FROM us_tickers_filtered
-WHERE ticker = 'SPY'
-ORDER BY 1;
-""",
-    ) |> DataFrame |> first |> first
+    latest_market_date =
+        DBInterface.execute(
+            conn,
+            """
+    SELECT MAX(endDate)
+    FROM us_tickers_filtered
+    WHERE ticker = 'SPY'
+    ORDER BY 1;
+    """,
+        ) |> DataFrame |> first |> first
     if isnothing(latest_market_date)
         latest_market_date = Date(now()) - Day(1)  # Default to yesterday if no data
     end
@@ -499,7 +511,8 @@ function update_historical_parallel(
     latest_market_date = get_latest_market_date(conn)
 
     # Filter tickers that need updates
-    tickers_to_update = filter_tickers_needing_update(tickers, latest_dates_dict, latest_market_date)
+    tickers_to_update =
+        filter_tickers_needing_update(tickers, latest_dates_dict, latest_market_date)
 
     @info "Found $(nrow(tickers_to_update)) tickers needing updates"
 
@@ -513,14 +526,22 @@ function update_historical_parallel(
     error_tickers = String[]
 
     # Split into batches
-    batches = [tickers_to_update[i:min(i+batch_size-1, nrow(tickers_to_update)), :]
-               for i in 1:batch_size:nrow(tickers_to_update)]
+    batches = [
+        tickers_to_update[i:min(i+batch_size-1, nrow(tickers_to_update)), :] for
+        i = 1:batch_size:nrow(tickers_to_update)
+    ]
 
     for (batch_idx, batch) in enumerate(batches)
         @info "Processing batch $batch_idx/$(length(batches)) with $(nrow(batch)) tickers"
 
         # Parallel API calls for this batch
-        batch_results = fetch_batch_data_parallel(batch, latest_dates_dict, latest_market_date, api_key, max_concurrent)
+        batch_results = fetch_batch_data_parallel(
+            batch,
+            latest_dates_dict,
+            latest_market_date,
+            api_key,
+            max_concurrent,
+        )
 
         # Bulk insert successful results
         for (ticker, data, status) in batch_results
@@ -550,14 +571,15 @@ end
 Get latest dates for all tickers as a dictionary for fast lookup.
 """
 function get_latest_dates_dict(conn::DuckDBConnection)
-    latest_dates_df = DBInterface.execute(
-        conn,
-        """
-        SELECT ticker, MAX(date) as latest_date
-        FROM historical_data
-        GROUP BY ticker
-        """,
-    ) |> DataFrame
+    latest_dates_df =
+        DBInterface.execute(
+            conn,
+            """
+            SELECT ticker, MAX(date) as latest_date
+            FROM historical_data
+            GROUP BY ticker
+            """,
+        ) |> DataFrame
 
     return Dict(row.ticker => row.latest_date for row in eachrow(latest_dates_df))
 end
@@ -589,7 +611,11 @@ end
 
 Filter tickers that need updates based on their latest dates.
 """
-function filter_tickers_needing_update(tickers::DataFrame, latest_dates_dict::Dict, latest_market_date::Date)
+function filter_tickers_needing_update(
+    tickers::DataFrame,
+    latest_dates_dict::Dict,
+    latest_market_date::Date,
+)
     needs_update = Bool[]
 
     for row in eachrow(tickers)
@@ -612,20 +638,30 @@ end
 
 Fetch data for a batch of tickers using parallel API calls.
 """
-function fetch_batch_data_parallel(batch::DataFrame, latest_dates_dict::Dict, latest_market_date::Date,
-                                 api_key::String, max_concurrent::Int)
+function fetch_batch_data_parallel(
+    batch::DataFrame,
+    latest_dates_dict::Dict,
+    latest_market_date::Date,
+    api_key::String,
+    max_concurrent::Int,
+)
 
     # Use a channel as a job queue with bounded buffer
     job_channel = Channel{DataFrameRow}(max_concurrent)
-    result_channel = Channel{Tuple{String, DataFrame, Symbol}}(nrow(batch))
+    result_channel = Channel{Tuple{String,DataFrame,Symbol}}(nrow(batch))
 
     # Start worker tasks
     workers = []
-    for _ in 1:min(max_concurrent, Threads.nthreads())
+    for _ = 1:min(max_concurrent, Threads.nthreads())
         worker = Threads.@spawn begin
             for row in job_channel
                 try
-                    result = fetch_single_ticker_data(row, latest_dates_dict, latest_market_date, api_key)
+                    result = fetch_single_ticker_data(
+                        row,
+                        latest_dates_dict,
+                        latest_market_date,
+                        api_key,
+                    )
                     put!(result_channel, result)
                 catch e
                     ticker = row.ticker
@@ -647,7 +683,7 @@ function fetch_batch_data_parallel(batch::DataFrame, latest_dates_dict::Dict, la
 
     # Collect results
     results = []
-    for _ in 1:nrow(batch)
+    for _ = 1:nrow(batch)
         push!(results, take!(result_channel))
     end
 
@@ -667,7 +703,12 @@ end
 
 Fetch data for a single ticker with proper date range handling.
 """
-function fetch_single_ticker_data(row::DataFrameRow, latest_dates_dict::Dict, latest_market_date::Date, api_key::String)
+function fetch_single_ticker_data(
+    row::DataFrameRow,
+    latest_dates_dict::Dict,
+    latest_market_date::Date,
+    api_key::String,
+)
     ticker = row.ticker
 
     try
@@ -741,7 +782,8 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
     @info "First date values: $(first_dates.date)"
 
     # 2. HANDLE EMPTY DATAFRAMES
-    if isempty(data_with_ticker) || all(ismissing.(data_with_ticker.date)) ||
+    if isempty(data_with_ticker) ||
+       all(ismissing.(data_with_ticker.date)) ||
        (eltype(data_with_ticker.date) <: Number && all(isnan.(data_with_ticker.date)))
         @info "No valid dates found for ticker $ticker - skipping"
         return 0
@@ -763,7 +805,7 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
         :adjOpen => Float64,
         :adjVolume => Int64,
         :divCash => Float64,
-        :splitFactor => Float64
+        :splitFactor => Float64,
     )
 
     # Ensure all required columns exist with proper defaults
@@ -795,8 +837,9 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
             clean_df.date = data_with_ticker.date
         elseif eltype(data_with_ticker.date) <: AbstractString
             # Handle string dates
-            for i in 1:nrow(data_with_ticker)
-                if ismissing(data_with_ticker.date[i]) || isempty(strip(data_with_ticker.date[i]))
+            for i = 1:nrow(data_with_ticker)
+                if ismissing(data_with_ticker.date[i]) ||
+                   isempty(strip(data_with_ticker.date[i]))
                     valid_rows[i] = false
                 else
                     # Try to parse the date string
@@ -811,7 +854,7 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
         elseif eltype(data_with_ticker.date) <: Number
             # Handle numeric dates
             dates = Vector{Union{Date,Missing}}(missing, nrow(data_with_ticker))
-            for i in 1:nrow(data_with_ticker)
+            for i = 1:nrow(data_with_ticker)
                 val = data_with_ticker.date[i]
                 if ismissing(val) || (isa(val, Number) && isnan(val))
                     valid_rows[i] = false
@@ -829,7 +872,7 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
         else
             # Unknown date format - try generic conversion and filter out failures
             dates = Vector{Union{Date,Missing}}(missing, nrow(data_with_ticker))
-            for i in 1:nrow(data_with_ticker)
+            for i = 1:nrow(data_with_ticker)
                 try
                     dates[i] = Date(data_with_ticker.date[i])
                 catch
@@ -864,7 +907,7 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
         if col in propertynames(data_filtered)
             # Convert each value individually with error handling
             values = Vector{type}(undef, nrow(clean_df))
-            for i in 1:nrow(clean_df)
+            for i = 1:nrow(clean_df)
                 if i <= nrow(data_filtered) && !ismissing(data_filtered[i, col])
                     val = data_filtered[i, col]
                     if isa(val, Number) && isnan(val)
@@ -898,31 +941,34 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
 
     try
         # Create temporary table with explicit schema matching historical_data
-        DBInterface.execute(conn, """
-            CREATE TEMPORARY TABLE $temp_table (
-                ticker VARCHAR,
-                date DATE,
-                close FLOAT,
-                high FLOAT,
-                low FLOAT,
-                open FLOAT,
-                volume BIGINT,
-                adjClose FLOAT,
-                adjHigh FLOAT,
-                adjLow FLOAT,
-                adjOpen FLOAT,
-                adjVolume BIGINT,
-                divCash FLOAT,
-                splitFactor FLOAT
-            )
-        """)
+        DBInterface.execute(
+            conn,
+            """
+    CREATE TEMPORARY TABLE $temp_table (
+        ticker VARCHAR,
+        date DATE,
+        close FLOAT,
+        high FLOAT,
+        low FLOAT,
+        open FLOAT,
+        volume BIGINT,
+        adjClose FLOAT,
+        adjHigh FLOAT,
+        adjLow FLOAT,
+        adjOpen FLOAT,
+        adjVolume BIGINT,
+        divCash FLOAT,
+        splitFactor FLOAT
+    )
+""",
+        )
 
         # Insert data into temporary table using bulk operations
         DBInterface.execute(conn, "BEGIN TRANSACTION")
 
         # Bulk insert using DuckDB's bulk append
         rows_inserted = 0
-        for i in 1:nrow(clean_df)
+        for i = 1:nrow(clean_df)
             try
                 # Directly construct the SQL with proper type handling
                 date_str = Dates.format(clean_df.date[i], "yyyy-mm-dd")
@@ -962,23 +1008,26 @@ function upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker:
         end
 
         # Perform upsert using SQL
-        DBInterface.execute(conn, """
-            INSERT INTO historical_data
-            SELECT * FROM $temp_table
-            ON CONFLICT (ticker, date) DO UPDATE SET
-                close = EXCLUDED.close,
-                high = EXCLUDED.high,
-                low = EXCLUDED.low,
-                open = EXCLUDED.open,
-                volume = EXCLUDED.volume,
-                adjClose = EXCLUDED.adjClose,
-                adjHigh = EXCLUDED.adjHigh,
-                adjLow = EXCLUDED.adjLow,
-                adjOpen = EXCLUDED.adjOpen,
-                adjVolume = EXCLUDED.adjVolume,
-                divCash = EXCLUDED.divCash,
-                splitFactor = EXCLUDED.splitFactor
-        """)
+        DBInterface.execute(
+            conn,
+            """
+    INSERT INTO historical_data
+    SELECT * FROM $temp_table
+    ON CONFLICT (ticker, date) DO UPDATE SET
+        close = EXCLUDED.close,
+        high = EXCLUDED.high,
+        low = EXCLUDED.low,
+        open = EXCLUDED.open,
+        volume = EXCLUDED.volume,
+        adjClose = EXCLUDED.adjClose,
+        adjHigh = EXCLUDED.adjHigh,
+        adjLow = EXCLUDED.adjLow,
+        adjOpen = EXCLUDED.adjOpen,
+        adjVolume = EXCLUDED.adjVolume,
+        divCash = EXCLUDED.divCash,
+        splitFactor = EXCLUDED.splitFactor
+""",
+        )
 
         DBInterface.execute(conn, "COMMIT")
         @info "Successfully inserted $rows_inserted rows for ticker $ticker"
@@ -1161,7 +1210,7 @@ SELECT ticker, splitFactor, date
         if ismissing(symbol) || symbol === nothing
             continue  # Skip this row if ticker is missing or null
         end
-        ticker_info = tickers[tickers.ticker.==symbol, :]
+        ticker_info = tickers[tickers.ticker .== symbol, :]
         if isempty(ticker_info)
             @warn "No ticker info found for $symbol"
             continue

@@ -25,11 +25,22 @@ function setup_test_environment()
 
     # Add some sample tickers for testing
     sample_tickers = DataFrame(
-        ticker = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "NFLX", "CRM", "ADBE"],
+        ticker = [
+            "AAPL",
+            "GOOGL",
+            "MSFT",
+            "AMZN",
+            "TSLA",
+            "META",
+            "NVDA",
+            "NFLX",
+            "CRM",
+            "ADBE",
+        ],
         exchange = fill("NASDAQ", 10),
         asset_type = fill("Stock", 10),
         start_date = fill(Date("2023-01-01"), 10),
-        end_date = fill(Date("2023-12-31"), 10)
+        end_date = fill(Date("2023-12-31"), 10),
     )
 
     return conn, sample_tickers
@@ -40,7 +51,8 @@ function benchmark_sequential_update(conn, tickers, api_key)
     println("\n🐌 Testing Sequential Update (Original)...")
 
     result = @timed begin
-        updated, missing = update_historical_sequential(conn, tickers, api_key; add_missing=true)
+        updated, missing =
+            update_historical_sequential(conn, tickers, api_key; add_missing = true)
     end
 
     println("Sequential Update Results:")
@@ -52,16 +64,24 @@ function benchmark_sequential_update(conn, tickers, api_key)
     return result
 end
 
-function benchmark_parallel_update(conn, tickers, api_key; batch_size=5, max_concurrent=3)
+function benchmark_parallel_update(
+    conn,
+    tickers,
+    api_key;
+    batch_size = 5,
+    max_concurrent = 3,
+)
     """Benchmark the optimized parallel update method"""
     println("\n🚀 Testing Parallel Update (Optimized)...")
 
     result = @timed begin
         updated, missing = update_historical_parallel(
-            conn, tickers, api_key;
-            batch_size=batch_size,
-            max_concurrent=max_concurrent,
-            add_missing=true
+            conn,
+            tickers,
+            api_key;
+            batch_size = batch_size,
+            max_concurrent = max_concurrent,
+            add_missing = true,
         )
     end
 
@@ -81,12 +101,16 @@ function compare_performance(sequential_result, parallel_result)
     println("\n📈 Performance Comparison:")
     println("=" ^ 50)
 
-    time_improvement = (sequential_result.time - parallel_result.time) / sequential_result.time * 100
-    memory_improvement = (sequential_result.bytes - parallel_result.bytes) / sequential_result.bytes * 100
+    time_improvement =
+        (sequential_result.time - parallel_result.time) / sequential_result.time * 100
+    memory_improvement =
+        (sequential_result.bytes - parallel_result.bytes) / sequential_result.bytes * 100
 
     println("⏱️  Time Improvement: $(round(time_improvement, digits=1))%")
     println("💾 Memory Improvement: $(round(memory_improvement, digits=1))%")
-    println("🚀 Speedup Factor: $(round(sequential_result.time / parallel_result.time, digits=2))x")
+    println(
+        "🚀 Speedup Factor: $(round(sequential_result.time / parallel_result.time, digits=2))x",
+    )
 
     if time_improvement > 0
         println("✅ Parallel version is FASTER!")
@@ -101,7 +125,7 @@ function demonstrate_bulk_upsert_performance(conn)
 
     # Generate sample data
     sample_data = DataFrame(
-        date = [Date("2023-01-01") + Day(i) for i in 1:100],
+        date = [Date("2023-01-01") + Day(i) for i = 1:100],
         close = rand(100:200, 100),
         high = rand(100:200, 100),
         low = rand(100:200, 100),
@@ -113,7 +137,7 @@ function demonstrate_bulk_upsert_performance(conn)
         adjOpen = rand(100:200, 100),
         adjVolume = rand(1000000:5000000, 100),
         divCash = zeros(100),
-        splitFactor = ones(100)
+        splitFactor = ones(100),
     )
 
     # Test original upsert
@@ -129,7 +153,9 @@ function demonstrate_bulk_upsert_performance(conn)
     println("Upsert Performance Comparison:")
     println("  🐌 Original method: $(round(original_time, digits=3)) seconds")
     println("  🚀 Bulk method: $(round(bulk_time, digits=3)) seconds")
-    println("  📈 Improvement: $(round((original_time - bulk_time) / original_time * 100, digits=1))%")
+    println(
+        "  📈 Improvement: $(round((original_time - bulk_time) / original_time * 100, digits=1))%",
+    )
     println("  ⚡ Speedup: $(round(original_time / bulk_time, digits=2))x")
 end
 
@@ -191,7 +217,9 @@ end
 function print_performance_tips()
     println("\n💡 Performance Optimization Tips:")
     println("=" ^ 50)
-    println("1. 🚀 Use update_historical_parallel() instead of update_historical_sequential()")
+    println(
+        "1. 🚀 Use update_historical_parallel() instead of update_historical_sequential()",
+    )
     println("2. 📦 Adjust batch_size (50-100) based on your API rate limits")
     println("3. ⚡ Set max_concurrent (5-20) based on your network and API limits")
     println("4. 🗃️  Call create_indexes() once after initial data load")
@@ -205,7 +233,9 @@ function print_performance_tips()
     println("optimize_database(conn)")
     println("create_indexes(conn)")
     println("tickers = get_tickers_stock(conn)")
-    println("update_historical(conn, tickers; use_parallel=true, batch_size=50, max_concurrent=10)")
+    println(
+        "update_historical(conn, tickers; use_parallel=true, batch_size=50, max_concurrent=10)",
+    )
     println("```")
 end
 

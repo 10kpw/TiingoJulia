@@ -12,11 +12,9 @@
 
 If you use TiingoJulia.jl in your work, please cite using the reference given in [CITATION.cff](https://github.com/10kpw/TiingoJulia/blob/main/CITATION.cff).
 
-
 ## Contributing
 
 If you want to make contributions of any kind, please first that a look into our [contributing guide directly on GitHub](docs/src/90-contributing.md).
-
 
 ---
 
@@ -67,5 +65,3 @@ update_historical(conn, tickers;
 ```
 
 See the [Performance Guide](PERFORMANCE.md) for more details and tuning parameters.
-
-
