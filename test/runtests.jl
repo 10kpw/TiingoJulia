@@ -1,3 +1,19 @@
+# Load all required dependencies first
+using CSV
+using DataFrames
+using Dates
+using DBInterface
+using DotEnv
+using DuckDB
+using HTTP
+using JSON3
+using LibPQ
+using Tables
+using ZipFile
+using Logging
+using LoggingExtras
+using TimeSeries
+
 using TiingoJulia
 using Test
 
