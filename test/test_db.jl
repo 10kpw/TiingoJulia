@@ -4,7 +4,12 @@ using Dates
 using DuckDB
 using DBInterface
 using TiingoJulia
-using TiingoJulia: DBConstants, DatabaseConnectionError, DatabaseQueryError, DuckDBConnection, PostgreSQLConnection
+using TiingoJulia:
+    DBConstants,
+    DatabaseConnectionError,
+    DatabaseQueryError,
+    DuckDBConnection,
+    PostgreSQLConnection
 
 # Define mock function for fetch_single_ticker_data that works without Mocking
 function mock_fetch_single_ticker_data(row, latest_dates_dict, latest_market_date, api_key)

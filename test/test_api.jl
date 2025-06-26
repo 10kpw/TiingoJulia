@@ -26,7 +26,7 @@ include("../src/api.jl")
         if !isnothing(original_key)
             delete!(ENV, "TIINGO_API_KEY")
         end
-        
+
         try
             @test_throws ErrorException get_api_key()
         finally
@@ -42,7 +42,7 @@ include("../src/api.jl")
         ticker_df = DataFrame(
             ticker = ["AAPL"],
             start_date = [Date("2023-05-01")],
-            end_date = [Date("2023-05-01")]
+            end_date = [Date("2023-05-01")],
         )
         ticker_info = ticker_df[1, :]
 
@@ -60,7 +60,7 @@ include("../src/api.jl")
         @test_throws HTTP.Exceptions.ConnectError fetch_api_data(
             "http://invalid-url-for-testing.com",
             Dict("param" => "value"),
-            Dict("Authorization" => "Token invalid-key")
+            Dict("Authorization" => "Token invalid-key"),
         )
     end
 
