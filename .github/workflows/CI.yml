@@ -48,8 +48,10 @@ jobs:
                   echo "TIINGO_API_KEY=$TIINGO_API_KEY" > .env
                   # Create test directory for DuckDB temp files
                   mkdir -p .duckdb_temp
-            - name: Install dependencies
-              run: julia --project=. -e 'import Pkg; Pkg.instantiate(); Pkg.precompile()'
+            - name: Install and resolve dependencies
+              run: |
+                  julia --project=. -e 'import Pkg; Pkg.instantiate(); Pkg.resolve(); Pkg.precompile()'
+                  julia --project=. -e 'using TimeSeries; println("TimeSeries loaded successfully")'
             - uses: julia-actions/julia-runtest@v1
               with:
                   coverage: true
