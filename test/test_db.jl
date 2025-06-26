@@ -9,7 +9,16 @@ using TiingoJulia:
     DatabaseConnectionError,
     DatabaseQueryError,
     DuckDBConnection,
-    PostgreSQLConnection
+    PostgreSQLConnection,
+    verify_duckdb_integrity,
+    get_tickers_all,
+    upsert_stock_data,
+    upsert_stock_data_bulk,
+    close_duckdb,
+    connect_duckdb,
+    connect_postgres,
+    close_postgres,
+    optimize_database
 
 # Define mock function for fetch_single_ticker_data that works without Mocking
 function mock_fetch_single_ticker_data(row, latest_dates_dict, latest_market_date, api_key)
