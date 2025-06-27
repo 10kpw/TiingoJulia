@@ -55,8 +55,8 @@ function mock_fetch_single_ticker_data(row, latest_dates_dict, latest_market_dat
 end
 
 @testset "Database Operations" begin
-    # Test database file path
-    test_db_path = "test_tiingo.duckdb"
+    # Use a temporary database file so tests don't rely on any existing DuckDB
+    test_db_path = tempname() * ".duckdb"
 
     # Clean up any existing test database
     isfile(test_db_path) && rm(test_db_path)
@@ -196,7 +196,7 @@ end
 
 @testset "Parallel Processing Features" begin
     # Test database file path
-    test_db_path_parallel = "test_tiingo_parallel.duckdb"
+    test_db_path_parallel = tempname() * "_parallel.duckdb"
 
     # Clean up any existing test database
     isfile(test_db_path_parallel) && rm(test_db_path_parallel)
