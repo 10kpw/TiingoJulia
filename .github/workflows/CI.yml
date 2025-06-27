@@ -42,9 +42,7 @@ jobs:
             - uses: julia-actions/julia-buildpkg@v1
             - name: Setup test environment
               run: |
-                  # Create .env file for testing
-                  echo "TIINGO_API_KEY=$TIINGO_API_KEY" > .env
-                  # Create test directory for DuckDB temp files
+                  # Ensure a directory exists for temporary DuckDB files
                   mkdir -p .duckdb_temp
             - name: Install and resolve dependencies
               run: |
