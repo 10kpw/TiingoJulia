@@ -18,7 +18,17 @@ using TimeSeries
 # Logger configuration
 const CONSOLE_LOGGER = ConsoleLogger(stderr, Logging.Info)
 const NULL_LOGGER = LoggingExtras.NullLogger()
-global_logger(LoggingExtras.TeeLogger(NULL_LOGGER, CONSOLE_LOGGER))
+
+function __init__()
+    logger_type = get(ENV, "TIINGO_LOGGER", "null")
+    if logger_type == "console"
+        global_logger(CONSOLE_LOGGER)
+    elseif logger_type == "tee"
+        global_logger(LoggingExtras.TeeLogger(NULL_LOGGER, CONSOLE_LOGGER))
+    else
+        global_logger(NULL_LOGGER)
+    end
+end
 
 # Include submodules
 include("api.jl")
