@@ -119,6 +119,18 @@ end
 """,
         )
 
+        # Refresh filtered tickers table after inserting
+        DBInterface.execute(
+            conn,
+            """
+CREATE OR REPLACE TABLE us_tickers_filtered AS
+SELECT * FROM us_tickers
+WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
+  AND assetType IN ('Stock', 'ETF')
+  AND ticker NOT LIKE '%/%'
+""",
+        )
+
         # Test retrieving tickers
         all_tickers = get_tickers_all(conn)
         @test nrow(all_tickers) > 0
