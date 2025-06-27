@@ -102,20 +102,8 @@ function connect_duckdb(path::String = DBConstants.DEFAULT_DUCKDB_PATH)::DuckDBC
         create_tables(conn)
         return conn
     catch e
-        @warn "Failed to connect to existing database: $e"
-
-        @info "Attempting to create a new database at path: $path"
-        try
-            # Ensure directory exists
-            mkpath(dirname(path))
-            conn = DBInterface.connect(DuckDB.DB, path)
-            configure_database(conn)
-            create_tables(conn)
-            return conn
-        catch new_e
-            @error "Failed to create new database" exception = (new_e, catch_backtrace())
-            throw(DatabaseConnectionError("Failed to connect to or create DuckDB: $new_e"))
-        end
+        @warn "Failed to connect to database: $e"
+        throw(DatabaseConnectionError("Failed to connect to DuckDB at $path: $e"))
     end
 end
 
@@ -1084,7 +1072,6 @@ function optimize_database(conn::DuckDBConnection)
         @info "Running in CI environment, using conservative settings"
         optimizations = [
             "SET memory_limit = '1GB'",
-            "SET threads = $(min(2, Threads.nthreads()))",
             "SET enable_progress_bar = false",
             "SET preserve_insertion_order = false",
             "SET temp_directory = '.duckdb_temp'",
@@ -1095,7 +1082,7 @@ function optimize_database(conn::DuckDBConnection)
                 DBInterface.execute(conn, opt)
                 @info "Applied CI optimization: $opt"
             catch e
-                @warn "Failed to apply optimization $opt: $e"
+                @info "Failed to apply optimization $opt: $e"
             end
         end
 
@@ -1145,7 +1132,7 @@ function optimize_database(conn::DuckDBConnection)
                 DBInterface.execute(conn, opt)
                 @info "Applied optimization: $opt"
             catch e
-                @warn "Failed to apply optimization $opt: $e"
+                @info "Failed to apply optimization $opt: $e"
             end
         end
 
@@ -1154,7 +1141,7 @@ function optimize_database(conn::DuckDBConnection)
 
         @info "Database optimized with $(Threads.nthreads()) threads and memory limit of $(mem_limit)"
     catch e
-        @warn "Failed to fully optimize database: $e"
+        @info "Failed to fully optimize database: $e"
         # Apply basic optimizations as fallback
         DBInterface.execute(conn, "SET threads = $(Threads.nthreads())")
         DBInterface.execute(conn, "SET memory_limit = '4GB'")
