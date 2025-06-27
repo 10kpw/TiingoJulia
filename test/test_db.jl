@@ -115,7 +115,7 @@ end
             """
     INSERT INTO us_tickers (ticker, exchange, assetType, priceCurrency, startDate, endDate)
     VALUES ('AAPL', 'NASDAQ', 'Stock', 'USD', '2000-01-01', '2023-12-31'),
-           ('GOOGL', 'NASDAQ', 'Stock', 'USD', '2004-08-19', '2023-12-31')
+        ('GOOGL', 'NASDAQ', 'Stock', 'USD', '2004-08-19', '2023-12-31')
 """,
         )
 
