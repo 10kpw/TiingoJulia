@@ -21,10 +21,13 @@ end
 Load environment variables from .env file.
 Returns true if successful, false otherwise.
 """
+const _ENV_LOADED = Ref(false)
+
 function load_env_file(env_path::String)::Bool
     try
-        if isfile(env_path)
+        if !_ENV_LOADED[] && isfile(env_path)
             DotEnv.load!(env_path)
+            _ENV_LOADED[] = true
             return true
         end
         return false
@@ -48,7 +51,7 @@ function get_api_key()::String
     end
 
     api_key = get(ENV, APIConfig.API_KEY_NAME, nothing)
-    if isnothing(api_key)
+    if isnothing(api_key) || isempty(api_key)
         available_keys = join(keys(ENV), ", ")
         error("""
             $(APIConfig.API_KEY_NAME) not found in environment variables.
