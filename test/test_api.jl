@@ -26,7 +26,7 @@ include("../src/api.jl")
         if !isnothing(original_key)
             delete!(ENV, "TIINGO_API_KEY")
         end
-        
+
         try
             @test_throws ErrorException get_api_key()
         finally
