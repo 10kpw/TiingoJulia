@@ -48,7 +48,7 @@ function get_api_key()::String
     end
 
     api_key = get(ENV, APIConfig.API_KEY_NAME, nothing)
-    if isnothing(api_key)
+    if isnothing(api_key) || isempty(api_key)
         available_keys = join(keys(ENV), ", ")
         error("""
             $(APIConfig.API_KEY_NAME) not found in environment variables.
