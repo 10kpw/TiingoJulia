@@ -133,7 +133,7 @@ download_tickers_duckdb(conn)
 
 # Get different types of tickers
 stocks = get_tickers_stock(conn)        # All stocks
-etfs = get_tickers_etf(conn)           # All ETFs  
+etfs = get_tickers_etf(conn)           # All ETFs
 all_instruments = get_tickers_all(conn) # All instruments
 
 # Generate filtered ticker list (US markets only)
@@ -261,9 +261,9 @@ chunk_size = 1000
 for i in 1:chunk_size:nrow(all_tickers)
     end_idx = min(i + chunk_size - 1, nrow(all_tickers))
     chunk = all_tickers[i:end_idx, :]
-    
+
     println("Processing chunk $(div(i-1, chunk_size) + 1): tickers $(i)-$(end_idx)")
-    
+
     update_historical(conn, chunk;
                       use_parallel=true,
                       batch_size=50,
@@ -286,8 +286,8 @@ conn = connect_duckdb(source_db)
 # Query historical data
 query = """
 SELECT ticker, date, adjClose as price, volume
-FROM historical_data 
-WHERE date >= '2024-01-01' 
+FROM historical_data
+WHERE date >= '2024-01-01'
 AND ticker IN ('AAPL', 'GOOGL', 'MSFT')
 ORDER BY ticker, date
 """
@@ -315,26 +315,26 @@ ENV["TIINGO_LOGGER"] = "console"
 try
     conn = connect_duckdb("my_data.duckdb")
     optimize_database(conn)
-    
+
     # Verify database integrity
     is_valid, error_msg = verify_duckdb_integrity("my_data.duckdb")
     if !is_valid
         @error "Database integrity check failed: $error_msg"
         return
     end
-    
+
     # Process data with error recovery
     tickers = get_tickers_stock(conn)
     updated_tickers, missing_tickers = update_historical(conn, tickers[1:100];
                                                         use_parallel=true,
                                                         batch_size=25,
                                                         max_concurrent=8)
-    
+
     @info "Successfully updated $(length(updated_tickers)) tickers"
     if !isempty(missing_tickers)
         @warn "Missing tickers: $(missing_tickers)"
     end
-    
+
 catch e
     @error "Error in data processing: $e"
 finally
@@ -364,7 +364,7 @@ DEFAULT_DB_PATH=/path/to/your/preferred/database.duckdb
 
 #### Database File Organization
 
-```
+```text
 your_project/
 ├── .env                           # API key configuration
 ├── data/
