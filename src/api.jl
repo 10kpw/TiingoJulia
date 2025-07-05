@@ -9,10 +9,22 @@ using DBInterface
 using ZipFile
 
 module APIConfig
-using DotEnv
+    using DotEnv
+    using JSON3
 
-const ENV_FILE = ".env"
-const API_KEY_NAME = "TIINGO_API_KEY"
+    const CONFIG_FILE = "config.json"
+    
+    function load_config()
+        config_path = joinpath(dirname(dirname(@__FILE__)), CONFIG_FILE)
+        if !isfile(config_path)
+            error("Config file not found at: $config_path")
+        end
+        return JSON3.read(read(config_path, String))
+    end
+    
+    const CONFIG = load_config()
+    const ENV_FILE = CONFIG.files.env_file
+    const API_KEY_NAME = CONFIG.environment.api_key_name
 end
 
 """
@@ -21,18 +33,15 @@ end
 Load environment variables from .env file.
 Returns true if successful, false otherwise.
 """
-const _ENV_LOADED = Ref(false)
-
 function load_env_file(env_path::String)::Bool
     try
-        if !_ENV_LOADED[] && isfile(env_path)
+        if isfile(env_path)
             DotEnv.load!(env_path)
-            _ENV_LOADED[] = true
             return true
         end
         return false
     catch e
-        @warn "Failed to load .env file" exception = e
+        @warn "Failed to load .env file" exception=e
         return false
     end
 end
@@ -51,7 +60,7 @@ function get_api_key()::String
     end
 
     api_key = get(ENV, APIConfig.API_KEY_NAME, nothing)
-    if isnothing(api_key) || isempty(api_key)
+    if isnothing(api_key)
         available_keys = join(keys(ENV), ", ")
         error("""
             $(APIConfig.API_KEY_NAME) not found in environment variables.
@@ -80,7 +89,7 @@ function get_ticker_data(
     start_date::Union{Date,Nothing} = nothing,
     end_date::Union{Date,Nothing} = nothing,
     api_key::String = get_api_key(),
-    base_url::String = "https://api.tiingo.com/tiingo/daily",
+    base_url::String = APIConfig.CONFIG.api.base_url
 )::DataFrame
     ticker = ticker_info.ticker
     actual_start_date = something(start_date, ticker_info.start_date)
@@ -90,7 +99,7 @@ function get_ticker_data(
     url = "$base_url/$ticker/prices"
     query = Dict(
         "startDate" => Dates.format(actual_start_date, "yyyy-mm-dd"),
-        "endDate" => Dates.format(actual_end_date, "yyyy-mm-dd"),
+        "endDate" => Dates.format(actual_end_date, "yyyy-mm-dd")
     )
 
     @info "Fetching price data for $ticker from $actual_start_date to $actual_end_date"
@@ -109,21 +118,25 @@ function fetch_api_data(
     url::String,
     query::Dict,
     headers::Dict;
-    max_retries::Int = 3,
-    retry_delay::Int = 2,
+    max_retries::Int = APIConfig.CONFIG.api.max_retries,
+    retry_delay::Int = APIConfig.CONFIG.api.retry_delay
 )
-    for attempt = 1:max_retries
+    for attempt in 1:max_retries
         @info "API request attempt $attempt for URL: $url"
         try
-            response = HTTP.get(url, query = query, headers = headers)
-            @assert response.status == 200 "Failed to fetch data: $(String(response.body))"
+            response = HTTP.get(url, query=query, headers=headers)
+            if response.status != 200
+                throw(ErrorException("Failed to fetch data: $(String(response.body))"))
+            end
 
             data = JSON3.read(String(response.body))
-            @assert !isempty(data) "No data returned from $url"
+            if isempty(data)
+                throw(ErrorException("No data returned from $url"))
+            end
 
             return data
         catch e
-            @warn "API request attempt $attempt failed" exception = e
+            @warn "API request attempt $attempt failed" exception=e
 
             if attempt < max_retries
                 sleep(retry_delay * 2^(attempt - 1))  # Exponential backoff
@@ -136,6 +149,17 @@ end
 
 
 """
+    get_table_count(conn::DBInterface.Connection, table_name::String)::Int
+
+Helper function to get the row count of a table.
+"""
+function get_table_count(conn::DBInterface.Connection, table_name::String)::Int
+    result = DBInterface.execute(conn, "SELECT COUNT(*) FROM $table_name") |> DataFrame
+    return result[1, 1]
+end
+
+
+"""
     download_tickers_duckdb(
     tickers_url::String="https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
     duckdb_path::String="tiingo_historical_data.duckdb", zip_file_path::String="supported_tickers.zip")
@@ -144,9 +168,9 @@ Download and process the latest tickers from Tiingo.
 """
 function download_tickers_duckdb(
     conn::DBInterface.Connection;
-    tickers_url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
-    zip_file_path::String = "supported_tickers.zip",
-    csv_file::String = "supported_tickers.csv",
+    tickers_url::String = APIConfig.CONFIG.api.tickers_url,
+    zip_file_path::String = APIConfig.CONFIG.files.zip_file,
+    csv_file::String = APIConfig.CONFIG.files.csv_file
 )
     try
         # Step 1: Download and unzip
@@ -159,22 +183,16 @@ function download_tickers_duckdb(
         create_filtered_tickers(conn)
 
         # Step 3: Verify the tables were created and have rows
-        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers") |> DataFrame
-        us_tickers_count = result[1, 1]
+        us_tickers_count = get_table_count(conn, "us_tickers")
+        filtered_count = get_table_count(conn, "us_tickers_filtered")
 
-        result =
-            DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered") |>
-            DataFrame
-        filtered_count = result[1, 1]
-
-        @info "Ticker processing completed" original_count = us_tickers_count filtered_count =
-            filtered_count
+        @info "Ticker processing completed" original_count=us_tickers_count filtered_count=filtered_count
 
         if filtered_count == 0
             @warn "us_tickers_filtered table was created but contains no rows"
         end
     catch e
-        @error "Error in download_tickers_duckdb" exception = (e, catch_backtrace())
+        @error "Error in download_tickers_duckdb" exception=(e, catch_backtrace())
         rethrow(e)
     finally
         cleanup_files(zip_file_path)
@@ -188,8 +206,8 @@ end
 Helper function to download and unzip a file.
 """
 function download_latest_tickers(
-    url::String = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
-    zip_file_path::String = "supported_tickers.zip",
+    url::String = APIConfig.CONFIG.api.tickers_url,
+    zip_file_path::String = APIConfig.CONFIG.files.zip_file
 )
     HTTP.download(url, zip_file_path)
     r = ZipFile.Reader(zip_file_path)
@@ -210,17 +228,17 @@ Create filtered US tickers table.
 """
 function create_filtered_tickers(conn::DBInterface.Connection)
     @info "Generating filtered tickers table..."
-    DBInterface.execute(
-        conn,
-        """
-    CREATE OR REPLACE TABLE us_tickers_filtered AS
-    SELECT * FROM us_tickers
-     WHERE exchange IN ('NYSE', 'NASDAQ', 'NYSE ARCA', 'AMEX', 'ASX')
-       AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
-       AND assetType IN ('Stock', 'ETF')
-       AND ticker NOT LIKE '%/%'
-""",
-    )
+    exchanges = join(["'$ex'" for ex in APIConfig.CONFIG.filtering.supported_exchanges], ", ")
+    asset_types = join(["'$at'" for at in APIConfig.CONFIG.filtering.supported_asset_types], ", ")
+    
+    DBInterface.execute(conn, """
+        CREATE OR REPLACE TABLE us_tickers_filtered AS
+        SELECT * FROM us_tickers
+        WHERE exchange IN ($exchanges)
+          AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
+          AND assetType IN ($asset_types)
+          AND ticker NOT LIKE '%/%'
+    """)
 end
 
 
@@ -232,15 +250,15 @@ end
 
 Helper function to process the tickers CSV file and insert into DuckDB.
 """
-function process_tickers_csv(conn::DBInterface.Connection, csv_file::String)
+function process_tickers_csv(
+    conn::DBInterface.Connection,
+    csv_file::String
+)
     try
-        DBInterface.execute(
-            conn,
-            """
-CREATE OR REPLACE TABLE us_tickers AS
-SELECT * FROM read_csv($csv_file)
-""",
-        )
+        DBInterface.execute(conn, """
+        CREATE OR REPLACE TABLE us_tickers AS
+        SELECT * FROM read_csv($csv_file)
+        """)
         @info "Update us_tickers in DuckDB with the CSV"
     catch e
         rethrow(e)
@@ -253,7 +271,7 @@ end
 Helper function to clean up temporary files.
 """
 function cleanup_files(zip_file_path::String)
-    for file in [zip_file_path, "supported_tickers.csv"]
+    for file in [zip_file_path, APIConfig.CONFIG.files.csv_file]
         if isfile(file)
             rm(file)
             @info "Cleaned up temporary file: $file"
@@ -266,11 +284,12 @@ end
 
 Generate a filtered list of US tickers.
 """
-function generate_filtered_tickers(conn::DBInterface.Connection)
+function generate_filtered_tickers(
+    conn::DBInterface.Connection
+)
     try
         # Check if us_tickers table exists and has data
-        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers")
-        us_tickers_count = DBInterface.fetch(result) |> first |> only
+        us_tickers_count = get_table_count(conn, "us_tickers")
 
         if us_tickers_count == 0
             error("us_tickers table is empty or does not exist")
@@ -280,8 +299,7 @@ function generate_filtered_tickers(conn::DBInterface.Connection)
         create_filtered_tickers(conn)
 
         # Verify the table was created and has rows
-        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM us_tickers_filtered")
-        filtered_count = DBInterface.fetch(result) |> first |> only
+        filtered_count = get_table_count(conn, "us_tickers_filtered")
 
         @info "Original us_tickers count: $us_tickers_count"
         @info "Filtered us_tickers_filtered count: $filtered_count"
