@@ -1,20 +1,20 @@
 {
-  "filtering": {
-    "supported_exchanges": ["NYSE", "NASDAQ", "NYSE ARCA", "AMEX", "ASX"],
-    "supported_asset_types": ["Stock", "ETF"]
-  },
-  "api": {
-    "base_url": "https://api.tiingo.com/tiingo/daily",
-    "tickers_url": "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
-    "max_retries": 3,
-    "retry_delay": 2
-  },
-  "files": {
-    "env_file": ".env",
-    "zip_file": "supported_tickers.zip",
-    "csv_file": "supported_tickers.csv"
-  },
-  "environment": {
-    "api_key_name": "TIINGO_API_KEY"
-  }
+    "filtering": {
+        "supported_exchanges": ["NYSE", "NASDAQ", "NYSE ARCA", "AMEX", "ASX"],
+        "supported_asset_types": ["Stock", "ETF"]
+    },
+    "api": {
+        "base_url": "https://api.tiingo.com/tiingo/daily",
+        "tickers_url": "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip",
+        "max_retries": 3,
+        "retry_delay": 2
+    },
+    "files": {
+        "env_file": ".env",
+        "zip_file": "supported_tickers.zip",
+        "csv_file": "supported_tickers.csv"
+    },
+    "environment": {
+        "api_key_name": "TIINGO_API_KEY"
+    }
 }

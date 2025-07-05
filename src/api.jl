@@ -13,7 +13,7 @@ module APIConfig
     using JSON3
 
     const CONFIG_FILE = "config.json"
-    
+
     function load_config()
         config_path = joinpath(dirname(dirname(@__FILE__)), CONFIG_FILE)
         if !isfile(config_path)
@@ -21,7 +21,7 @@ module APIConfig
         end
         return JSON3.read(read(config_path, String))
     end
-    
+
     const CONFIG = load_config()
     const ENV_FILE = CONFIG.files.env_file
     const API_KEY_NAME = CONFIG.environment.api_key_name
@@ -230,7 +230,7 @@ function create_filtered_tickers(conn::DBInterface.Connection)
     @info "Generating filtered tickers table..."
     exchanges = join(["'$ex'" for ex in APIConfig.CONFIG.filtering.supported_exchanges], ", ")
     asset_types = join(["'$at'" for at in APIConfig.CONFIG.filtering.supported_asset_types], ", ")
-    
+
     DBInterface.execute(conn, """
         CREATE OR REPLACE TABLE us_tickers_filtered AS
         SELECT * FROM us_tickers

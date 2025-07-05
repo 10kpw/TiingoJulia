@@ -417,6 +417,77 @@ ON CONFLICT (ticker, date) DO UPDATE SET
     return rows_updated
 end
 
+"""
+    upsert_stock_data_bulk(conn::DuckDBConnection, data::DataFrame, ticker::String)
+
+Bulk upsert stock data into the historical_data table using prepared statements for better performance.
+"""
+function upsert_stock_data_bulk(
+    conn::DuckDBConnection,
+    data::DataFrame,
+    ticker::String
+)
+    if nrow(data) == 0
+        return 0
+    end
+
+    # Filter data for the specific ticker if needed
+    ticker_data = filter(row -> row.ticker == ticker, data)
+    if nrow(ticker_data) == 0
+        return 0
+    end
+
+    upsert_stmt = """
+    INSERT INTO historical_data (ticker, date, close, high, low, open, volume, adjClose, adjHigh, adjLow, adjOpen, adjVolume, divCash, splitFactor)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (ticker, date) DO UPDATE SET
+        close = EXCLUDED.close,
+        high = EXCLUDED.high,
+        low = EXCLUDED.low,
+        open = EXCLUDED.open,
+        volume = EXCLUDED.volume,
+        adjClose = EXCLUDED.adjClose,
+        adjHigh = EXCLUDED.adjHigh,
+        adjLow = EXCLUDED.adjLow,
+        adjOpen = EXCLUDED.adjOpen,
+        adjVolume = EXCLUDED.adjVolume,
+        divCash = EXCLUDED.divCash,
+        splitFactor = EXCLUDED.splitFactor
+    """
+
+    rows_updated = 0
+    DBInterface.execute(conn, "BEGIN TRANSACTION")
+    try
+        for row in eachrow(ticker_data)
+            values = (
+                ticker,
+                row.date,
+                coalesce(row.close, NaN),
+                coalesce(row.high, NaN),
+                coalesce(row.low, NaN),
+                coalesce(row.open, NaN),
+                coalesce(row.volume, 0),
+                coalesce(row.adjClose, NaN),
+                coalesce(row.adjHigh, NaN),
+                coalesce(row.adjLow, NaN),
+                coalesce(row.adjOpen, NaN),
+                coalesce(row.adjVolume, 0),
+                coalesce(row.divCash, 0.0),
+                coalesce(row.splitFactor, 1.0)
+            )
+            DBInterface.execute(conn, upsert_stmt, values)
+            rows_updated += 1
+        end
+        DBInterface.execute(conn, "COMMIT")
+    catch e
+        DBInterface.execute(conn, "ROLLBACK")
+        @error "Error bulk upserting stock data for $ticker" exception=(e, catch_backtrace())
+        rethrow(e)
+    end
+
+    return rows_updated
+end
+
 function log_update_results(missing_tickers::Vector{String}, updated_tickers::Vector{String}, error_tickers::Vector{String}, add_missing::Bool)
     if !isempty(missing_tickers)
         if add_missing
@@ -821,5 +892,22 @@ function close_duckdb(conn::DuckDBConnection)
         @info "DuckDB connection closed successfully"
     catch e
         @warn "Error closing DuckDB connection" exception=e
+    end
+end
+
+"""
+    optimize_database(conn::DuckDBConnection)
+
+Optimize the database by running VACUUM and ANALYZE commands for better performance.
+"""
+function optimize_database(conn::DuckDBConnection)
+    try
+        @info "Optimizing database..."
+        DBInterface.execute(conn, "VACUUM")
+        DBInterface.execute(conn, "ANALYZE")
+        @info "Database optimization completed"
+    catch e
+        @warn "Database optimization failed" exception=e
+        rethrow(e)
     end
 end

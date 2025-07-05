@@ -7,7 +7,13 @@ using DBInterface
     @test isa(get_api_key(), String)
     @test !isempty(get_api_key())
 
-    conn = connect_duckdb()
+    # Use a temporary database file for testing
+    test_db_path = tempname() * ".duckdb"
+
+    # Clean up any existing test database
+    isfile(test_db_path) && rm(test_db_path)
+
+    conn = connect_duckdb(test_db_path)
     @test isa(conn, DBInterface.Connection)
 
     # Add some dummy data to us_tickers_filtered
@@ -24,6 +30,9 @@ VALUES ('AAPL', 'NASDAQ', 'Stock', 'USD', '1980-12-12', '2023-08-25')
     @test !isempty(tickers_stock)
 
     close_duckdb(conn)
+
+    # Clean up test database
+    rm(test_db_path)
 end
 
 println("All tests completed successfully!")
