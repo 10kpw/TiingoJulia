@@ -72,8 +72,8 @@ end
         @test is_valid == true
         @test error_msg === nothing
 
-        # Test invalid database path
-        @test_throws DatabaseConnectionError connect_duckdb("nonexistent/path/db.duckdb")
+        # Test invalid database path (use a path that definitely can't be created)
+        @test_throws DatabaseConnectionError connect_duckdb("/dev/null/invalid.duckdb")
 
         # Clean up
         close_duckdb(conn)

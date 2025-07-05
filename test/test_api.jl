@@ -21,10 +21,19 @@ include("../src/api.jl")
         end
 
         # Test that the function throws an error when the key is not set
-        # We need to temporarily remove the API key from ENV
+        # We need to temporarily remove the API key from ENV and disable .env file loading
         original_key = get(ENV, "TIINGO_API_KEY", nothing)
+        env_file_exists = isfile(".env")
+        temp_env_file = nothing
+
         if !isnothing(original_key)
             delete!(ENV, "TIINGO_API_KEY")
+        end
+
+        # Temporarily move .env file if it exists
+        if env_file_exists
+            temp_env_file = tempname()
+            mv(".env", temp_env_file)
         end
 
         try
@@ -33,6 +42,10 @@ include("../src/api.jl")
             # Restore the original API key
             if !isnothing(original_key)
                 ENV["TIINGO_API_KEY"] = original_key
+            end
+            # Restore .env file if it existed
+            if env_file_exists && !isnothing(temp_env_file)
+                mv(temp_env_file, ".env")
             end
         end
     end
