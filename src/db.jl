@@ -719,13 +719,13 @@ function export_table_to_postgres_dataframe(
 
         # Insert data into PostgreSQL
         columns = join(lowercase.(names(df)), ", ")
-        placeholders = join(["?" for _ in 1:ncol(df)], ", ")
+        placeholders = join(["\$" * string(i) for i in 1:ncol(df)], ", ")
         insert_query = "INSERT INTO $table_name ($columns) VALUES ($placeholders)"
 
         LibPQ.load!(
             (col => df[!, col] for col in names(df)),
             pg_conn,
-            "INSERT INTO $table_name ($columns) VALUES ($placeholders)"
+            insert_query
         )
 
         @info "Inserted $(nrow(df)) rows into PostgreSQL table $table_name"
