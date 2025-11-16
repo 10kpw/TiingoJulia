@@ -36,7 +36,8 @@ Returns true if successful, false otherwise.
 function load_env_file(env_path::String)::Bool
     try
         if isfile(env_path)
-            DotEnv.load!(env_path)
+            # Force override to ensure correct API key is loaded even if ENV is already set
+            DotEnv.load!(env_path; override=true)
             return true
         end
         return false
