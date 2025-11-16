@@ -34,11 +34,32 @@ end
 const DuckDBConnection = DBInterface.Connection
 const PostgreSQLConnection = LibPQ.Connection
 
+# Global reference to log file handle for cleanup
+const TIINGO_LOG_FILE_HANDLE = Ref{Union{IO,Nothing}}(nothing)
+
 # Set up logging to file
 function setup_logging()
-    logger = SimpleLogger(open(LOG_FILE, "a"))
+    io = open(LOG_FILE, "a")
+    TIINGO_LOG_FILE_HANDLE[] = io  # Store for cleanup
+    logger = SimpleLogger(io)
     global_logger(logger)
 end
+
+# Cleanup logging resources
+function cleanup_logging()
+    if TIINGO_LOG_FILE_HANDLE[] !== nothing
+        try
+            close(TIINGO_LOG_FILE_HANDLE[])
+            TIINGO_LOG_FILE_HANDLE[] = nothing
+            @info "TiingoJulia log file handle closed successfully"
+        catch e
+            @warn "Error closing TiingoJulia log file" exception=e
+        end
+    end
+end
+
+# Register cleanup to run on exit
+atexit(cleanup_logging)
 
 """
     verify_duckdb_integrity(path::String)
@@ -192,14 +213,17 @@ end
 
 
 """
-    update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key(); add_missing::Bool = false)
+    update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key(); use_parallel::Bool=true, batch_size::Int=50, max_concurrent::Int=10, add_missing::Bool=true)
 
-Update historical data for multiple tickers.
+Update historical data for multiple tickers with optional parallel processing.
 
 Parameters:
 - conn: DuckDB database connection
 - tickers: DataFrame containing ticker information
 - api_key: API key for fetching ticker data
+- use_parallel: If true, use parallel processing (default: true)
+- batch_size: Number of tickers to process per batch when parallel (default: 50)
+- max_concurrent: Maximum number of concurrent API calls when parallel (default: 10)
 - add_missing: If true, automatically add missing tickers to the historical_data table
 
 Returns:
@@ -209,17 +233,41 @@ function update_historical(
     conn::DuckDBConnection,
     tickers::DataFrame,
     api_key::String = get_api_key();
-    add_missing::Bool = true
+    use_parallel::Bool = true,
+    batch_size::Int = 50,
+    max_concurrent::Int = 10,
+    add_missing::Bool = true,
+    latest_dates_df::Union{DataFrame,Nothing} = nothing,
+    reference_ticker::String = "SPY"
 )
-    latest_dates_df = get_latest_dates(conn)
-    end_date = DBInterface.execute(conn, """
-    SELECT MAX(endDate) as end_date
-    FROM us_tickers_filtered
-    WHERE ticker = 'SPY'
-    ORDER BY 1;
-    """) |> DataFrame |> first |> first
-    if isnothing(end_date)
-        end_date = Date(now()) - Day(1)  # Default to yesterday if no data
+    # Dispatch to parallel or sequential version
+    if use_parallel
+        return update_historical_parallel(
+            conn, tickers, api_key;
+            batch_size=batch_size,
+            max_concurrent=max_concurrent,
+            add_missing=add_missing
+        )
+    else
+        return update_historical_sequential_impl(
+            conn, tickers, api_key;
+            add_missing=add_missing,
+            latest_dates_df=latest_dates_df
+        )
+    end
+end
+
+# Internal sequential implementation (renamed to avoid conflict)
+function update_historical_sequential_impl(
+    conn::DuckDBConnection,
+    tickers::DataFrame,
+    api_key::String;
+    add_missing::Bool = true,
+    latest_dates_df::Union{DataFrame,Nothing} = nothing
+)
+    # Only compute latest dates if not provided (optimization for batch processing)
+    if latest_dates_df === nothing
+        latest_dates_df = get_latest_dates(conn)
     end
 
     updated_tickers = String[]
@@ -228,19 +276,21 @@ function update_historical(
 
     for (i, row) in enumerate(eachrow(tickers))
         symbol = row.ticker
+        # Use ticker's own end_date from the row (this comes from us_tickers_filtered query)
+        ticker_end_date = haskey(row, :end_date) ? row.end_date : (haskey(row, :endDate) ? row.endDate : Date(now()) - Day(1))
         ticker_latest = filter(r -> r.ticker == symbol, latest_dates_df)
 
         if isempty(ticker_latest)
             handle_missing_ticker(conn, row, api_key, missing_tickers, updated_tickers)
         else
             latest_date = ticker_latest[1, :latest_date]
-            if latest_date < end_date
-                @info "$i : $symbol : $(latest_date + Day(1)) ~ $end_date"
+            if latest_date < ticker_end_date
+                @info "$i : $symbol : $(latest_date + Day(1)) ~ $ticker_end_date"
                 try
                     ticker_data = get_ticker_data(
                         row,
                         start_date = latest_date + Day(1),
-                        end_date = end_date,
+                        end_date = ticker_end_date,
                         api_key = api_key
                     )
                     if !isempty(ticker_data)
@@ -514,6 +564,12 @@ function update_split_ticker(
     tickers::DataFrame, # all tickers is best
     api_key::String = get_api_key()
 )
+    # Handle empty tickers DataFrame
+    if nrow(tickers) == 0
+        @info "No tickers to process for split updates"
+        return
+    end
+
     end_date = maximum(skipmissing(tickers.end_date))
 
     split_tickers = DBInterface.execute(conn, """
@@ -585,17 +641,53 @@ function get_tickers_stock(conn::DBInterface.Connection)::DataFrame
 end
 
 """
-    connect_postgres(connection_string::String)
+    connect_postgres(connection_string::String; timeout_seconds::Int=30, max_retries::Int=3, retry_delay::Int=5)
 
-Connect to the PostgreSQL database.
+Connect to the PostgreSQL database with retry logic and timeout.
+
+# Arguments
+- `connection_string`: PostgreSQL connection string
+- `timeout_seconds`: Connection timeout in seconds (default: 30)
+- `max_retries`: Maximum number of connection attempts (default: 3)
+- `retry_delay`: Delay between retries in seconds (default: 5)
 """
-function connect_postgres(connection_string::String)::PostgreSQLConnection
-    try
-        return LibPQ.Connection(connection_string)
-    catch e
-        @error "Failed to connect to PostgreSQL" exception=(e, catch_backtrace())
-        rethrow(e)
+function connect_postgres(connection_string::String;
+                         timeout_seconds::Int=30,
+                         max_retries::Int=3,
+                         retry_delay::Int=5)::PostgreSQLConnection
+    last_error = nothing
+
+    for attempt in 1:max_retries
+        try
+            # Add timeout to connection string if not already present
+            conn_str = if !contains(connection_string, "connect_timeout")
+                sep = contains(connection_string, "?") ? "&" : "?"
+                "$connection_string$(sep)connect_timeout=$timeout_seconds"
+            else
+                connection_string
+            end
+
+            conn = LibPQ.Connection(conn_str)
+
+            # Test connection with simple query
+            result = execute(conn, "SELECT 1")
+            close(result)
+
+            @info "Connected to PostgreSQL successfully" attempt=attempt
+            return conn
+        catch e
+            last_error = e
+            @warn "PostgreSQL connection attempt $attempt/$max_retries failed" exception=(e, catch_backtrace())
+
+            if attempt < max_retries
+                @info "Retrying in $retry_delay seconds..."
+                sleep(retry_delay)
+            end
+        end
     end
+
+    @error "Failed to connect to PostgreSQL after $max_retries attempts"
+    throw(last_error)
 end
 
 """
@@ -898,16 +990,268 @@ end
 """
     optimize_database(conn::DuckDBConnection)
 
-Optimize the database by running VACUUM and ANALYZE commands for better performance.
+Optimize the database by automatically detecting system resources and configuring
+database settings for optimal performance.
 """
 function optimize_database(conn::DuckDBConnection)
     try
         @info "Optimizing database..."
+
+        # Detect system memory
+        total_memory_gb = try
+            if Sys.islinux()
+                mem_info = read("/proc/meminfo", String)
+                mem_total = match(r"MemTotal:\s+(\d+)", mem_info)
+                parse(Int, mem_total[1]) ÷ 1024 ÷ 1024  # Convert KB to GB
+            elseif Sys.isapple()
+                mem_bytes = parse(Int, read(`sysctl -n hw.memsize`, String))
+                mem_bytes ÷ 1024^3  # Convert bytes to GB
+            else
+                16  # Default to 16GB if unknown
+            end
+        catch
+            16  # Default to 16GB if detection fails
+        end
+
+        # Set memory limit to 75% of available memory
+        memory_limit = max(4, Int(floor(total_memory_gb * 0.75)))
+
+        # Detect CPU threads
+        num_threads = Sys.CPU_THREADS
+        worker_threads = max(1, num_threads - 1)
+
+        @info "System resources detected" total_memory_gb memory_limit_gb=memory_limit threads=num_threads
+
+        # Apply DuckDB optimizations
+        DBInterface.execute(conn, "SET memory_limit = '$(memory_limit)GB'")
+        DBInterface.execute(conn, "SET threads = $num_threads")
+        DBInterface.execute(conn, "SET worker_threads = $worker_threads")
+        DBInterface.execute(conn, "SET temp_directory = '/tmp/duckdb'")
+
+        # Run VACUUM and ANALYZE
         DBInterface.execute(conn, "VACUUM")
         DBInterface.execute(conn, "ANALYZE")
-        @info "Database optimization completed"
+
+        @info "Database optimization completed" memory_limit="$(memory_limit)GB" threads=num_threads
     catch e
         @warn "Database optimization failed" exception=e
         rethrow(e)
     end
+end
+
+"""
+    create_indexes(conn::DuckDBConnection)
+
+Create indexes on the historical_data table for better query performance.
+"""
+function create_indexes(conn::DuckDBConnection)
+    try
+        @info "Creating database indexes..."
+
+        # Create index on ticker column for faster ticker lookups
+        DBInterface.execute(conn, """
+            CREATE INDEX IF NOT EXISTS idx_historical_ticker
+            ON historical_data(ticker)
+        """)
+
+        # Create index on date column for faster date range queries
+        DBInterface.execute(conn, """
+            CREATE INDEX IF NOT EXISTS idx_historical_date
+            ON historical_data(date)
+        """)
+
+        # Create composite index for ticker + date queries
+        DBInterface.execute(conn, """
+            CREATE INDEX IF NOT EXISTS idx_historical_ticker_date
+            ON historical_data(ticker, date)
+        """)
+
+        @info "Database indexes created successfully"
+    catch e
+        @warn "Failed to create indexes" exception=e
+        rethrow(e)
+    end
+end
+
+"""
+    list_tables(conn::DuckDBConnection)
+
+List all tables in the database.
+"""
+function list_tables(conn::DuckDBConnection)::DataFrame
+    try
+        result = DBInterface.execute(conn, """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'main'
+            ORDER BY table_name
+        """) |> DataFrame
+
+        @info "Found $(nrow(result)) tables in database"
+        return result
+    catch e
+        @warn "Failed to list tables" exception=e
+        rethrow(e)
+    end
+end
+
+"""
+    update_historical_parallel(conn::DuckDBConnection, tickers::DataFrame, api_key::String; batch_size::Int=50, max_concurrent::Int=10, add_missing::Bool=true)
+
+Update historical data for multiple tickers using parallel processing for improved performance.
+
+Parameters:
+- conn: DuckDB database connection
+- tickers: DataFrame containing ticker information
+- api_key: API key for fetching ticker data
+- batch_size: Number of tickers to process per batch (default: 50)
+- max_concurrent: Maximum number of concurrent API calls (default: 10)
+- add_missing: If true, automatically add missing tickers to the historical_data table
+
+Returns:
+- A tuple containing two lists: (updated_tickers, missing_tickers)
+"""
+function update_historical_parallel(
+    conn::DuckDBConnection,
+    tickers::DataFrame,
+    api_key::String = get_api_key();
+    batch_size::Int = 50,
+    max_concurrent::Int = 10,
+    add_missing::Bool = true
+)
+    @info "Starting parallel historical data update" total_tickers=nrow(tickers) batch_size max_concurrent
+
+    # Pre-compute latest dates once for all batches
+    latest_dates_df = get_latest_dates(conn)
+
+    all_updated = String[]
+    all_missing = String[]
+
+    # Process tickers in batches
+    num_batches = Int(ceil(nrow(tickers) / batch_size))
+
+    for batch_idx in 1:num_batches
+        start_idx = (batch_idx - 1) * batch_size + 1
+        end_idx = min(batch_idx * batch_size, nrow(tickers))
+        batch = tickers[start_idx:end_idx, :]
+
+        @info "Processing batch $batch_idx/$num_batches" tickers_in_batch=nrow(batch)
+
+        # Use Channel for job queue to limit concurrency
+        jobs = Channel{Int}(max_concurrent)
+        results = Channel{Tuple{String, Bool, Union{Exception, Nothing}}}(nrow(batch))
+
+        # Spawn workers
+        @sync begin
+            # Producer: add jobs to queue
+            @async begin
+                for i in 1:nrow(batch)
+                    put!(jobs, i)
+                end
+                close(jobs)
+            end
+
+            # Consumers: process jobs with limited concurrency
+            for _ in 1:max_concurrent
+                @async begin
+                    for job_idx in jobs
+                        row = batch[job_idx, :]
+                        ticker = row.ticker
+
+                        try
+                            ticker_end_date = haskey(row, :end_date) ? row.end_date :
+                                             (haskey(row, :endDate) ? row.endDate : Date(now()) - Day(1))
+                            ticker_latest = filter(r -> r.ticker == ticker, latest_dates_df)
+
+                            if isempty(ticker_latest)
+                                # Missing ticker
+                                if add_missing
+                                    ticker_data = get_ticker_data(row; api_key=api_key)
+                                    if !isempty(ticker_data)
+                                        upsert_stock_data_bulk(conn, ticker_data, ticker)
+                                        put!(results, (ticker, true, nothing))
+                                    else
+                                        put!(results, (ticker, false, ErrorException("No data retrieved")))
+                                    end
+                                else
+                                    put!(results, (ticker, false, nothing))
+                                end
+                            else
+                                latest_date = ticker_latest[1, :latest_date]
+                                if latest_date < ticker_end_date
+                                    ticker_data = get_ticker_data(
+                                        row,
+                                        start_date = latest_date + Day(1),
+                                        end_date = ticker_end_date,
+                                        api_key = api_key
+                                    )
+                                    if !isempty(ticker_data)
+                                        upsert_stock_data_bulk(conn, ticker_data, ticker)
+                                        put!(results, (ticker, true, nothing))
+                                    else
+                                        put!(results, (ticker, false, ErrorException("No new data")))
+                                    end
+                                else
+                                    put!(results, (ticker, true, nothing))
+                                end
+                            end
+                        catch e
+                            put!(results, (ticker, false, e))
+                        end
+                    end
+                end
+            end
+        end
+
+        close(results)
+
+        # Collect results
+        batch_updated = String[]
+        batch_missing = String[]
+
+        for (ticker, success, error) in results
+            if success
+                push!(batch_updated, ticker)
+            else
+                push!(batch_missing, ticker)
+                if !isnothing(error)
+                    @warn "Failed to update ticker: $ticker" exception=error
+                end
+            end
+        end
+
+        append!(all_updated, batch_updated)
+        append!(all_missing, batch_missing)
+
+        @info "Batch $batch_idx complete" updated=length(batch_updated) missing=length(batch_missing)
+    end
+
+    @info "Parallel update completed" total_updated=length(all_updated) total_missing=length(all_missing)
+    return (all_updated, all_missing)
+end
+
+"""
+    update_historical_sequential(conn::DuckDBConnection, tickers::DataFrame, api_key::String; add_missing::Bool=true)
+
+Update historical data for multiple tickers sequentially (legacy method for compatibility).
+
+Parameters:
+- conn: DuckDB database connection
+- tickers: DataFrame containing ticker information
+- api_key: API key for fetching ticker data
+- add_missing: If true, automatically add missing tickers to the historical_data table
+
+Returns:
+- A tuple containing two lists: (updated_tickers, missing_tickers)
+"""
+function update_historical_sequential(
+    conn::DuckDBConnection,
+    tickers::DataFrame,
+    api_key::String = get_api_key();
+    add_missing::Bool = true
+)
+    @info "Starting sequential historical data update" total_tickers=nrow(tickers)
+
+    # Call the internal sequential implementation
+    return update_historical_sequential_impl(conn, tickers, api_key; add_missing=add_missing)
 end

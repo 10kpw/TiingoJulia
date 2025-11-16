@@ -31,4 +31,30 @@ benchmark/*.json
 coverage
 node_modules
 .env
+.env.*
+.env.local
+.env.production
+app.yaml
+app.yml
+secrets.yaml
 ._*
+
+# Database files
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.sqlite3
+
+# Tiingo data files
+supported_tickers.zip
+supported_tickers.csv
+*.parquet
+
+# Log files
+*.log
+stock.log
+
+# Temporary files
+*.tmp
+/tmp/
