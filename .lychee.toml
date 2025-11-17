@@ -3,7 +3,8 @@ exclude = [
   "^https://github.com/.*/releases/tag/v.*$",
   "^https://doi.org/FIXME$",
   "^https://10kpw.github.io/TiingoJulia",
-  "zenodo.org/badge/DOI/FIXME$"
+  "zenodo.org/badge/DOI/FIXME$",
+  "^https://blog.esciencecenter.nl/the-utopic-git-history"
 ]
 
 exclude_path = [

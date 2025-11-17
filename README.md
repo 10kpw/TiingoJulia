@@ -399,4 +399,4 @@ TiingoJulia.jl includes significant performance improvements for historical data
 - **Memory Usage**: Automatically optimized based on available system memory
 - **Database Performance**: Optimized with proper indexing and bulk operations
 
-See the [Performance Guide](PERFORMANCE.md) for detailed benchmarks and tuning parameters.
+See the [Performance Guide](docs/src/PERFORMANCE.md) for detailed benchmarks and tuning parameters.

@@ -276,4 +276,4 @@ connections = [connect_duckdb() for _ in 1:4]
 
 ---
 
-For more information, see the [main README](README.md) or run the performance comparison script.
+For more information, see the [main README](../../README.md) or run the performance comparison script.
