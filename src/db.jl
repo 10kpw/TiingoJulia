@@ -1025,7 +1025,14 @@ function optimize_database(conn::DuckDBConnection)
         # Apply DuckDB optimizations
         DBInterface.execute(conn, "SET memory_limit = '$(memory_limit)GB'")
         DBInterface.execute(conn, "SET threads = $num_threads")
-        DBInterface.execute(conn, "SET worker_threads = $worker_threads")
+
+        # Try to set worker_threads, but don't fail if external threads prevent it
+        try
+            DBInterface.execute(conn, "SET worker_threads = $worker_threads")
+        catch e
+            @debug "Could not set worker_threads" exception=e
+        end
+
         DBInterface.execute(conn, "SET temp_directory = '/tmp/duckdb'")
 
         # Run VACUUM and ANALYZE
