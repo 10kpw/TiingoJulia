@@ -99,10 +99,13 @@ end
 """
     configure_database(conn::DuckDBConnection)
 
-Configure database settings.
+Configure database settings. Currently uses DuckDB defaults.
+Use optimize_database(conn) for automatic performance tuning.
 """
 function configure_database(conn::DuckDBConnection)
-    DBInterface.execute(conn, "SET threads TO 4")
+    # Don't hardcode threads - let DuckDB use system defaults
+    # Users can call optimize_database(conn) for automatic performance tuning
+    return conn
 end
 
 """
@@ -213,7 +216,7 @@ end
 
 
 """
-    update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key(); use_parallel::Bool=true, batch_size::Int=50, max_concurrent::Int=10, add_missing::Bool=true)
+    update_historical(conn::DuckDBConnection, tickers::DataFrame, api_key::String = get_api_key(); use_parallel::Bool=false, batch_size::Int=50, max_concurrent::Int=10, add_missing::Bool=true)
 
 Update historical data for multiple tickers with optional parallel processing.
 
@@ -221,7 +224,7 @@ Parameters:
 - conn: DuckDB database connection
 - tickers: DataFrame containing ticker information
 - api_key: API key for fetching ticker data
-- use_parallel: If true, use parallel processing (default: true)
+- use_parallel: If true, use parallel processing (default: false for reliability)
 - batch_size: Number of tickers to process per batch when parallel (default: 50)
 - max_concurrent: Maximum number of concurrent API calls when parallel (default: 10)
 - add_missing: If true, automatically add missing tickers to the historical_data table
@@ -233,7 +236,7 @@ function update_historical(
     conn::DuckDBConnection,
     tickers::DataFrame,
     api_key::String = get_api_key();
-    use_parallel::Bool = true,
+    use_parallel::Bool = false,
     batch_size::Int = 50,
     max_concurrent::Int = 10,
     add_missing::Bool = true,
