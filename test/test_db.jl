@@ -5,7 +5,6 @@ using DuckDB
 using DBInterface
 using TiingoJulia
 using TiingoJulia:
-    DBConstants,
     DatabaseConnectionError,
     DatabaseQueryError,
     DuckDBConnection,
