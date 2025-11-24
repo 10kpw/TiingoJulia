@@ -15,7 +15,7 @@ jobs:
         name: Linting
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v6
             - uses: julia-actions/setup-julia@v2
               with:
                   version: "1"
@@ -37,7 +37,7 @@ jobs:
         name: Link Checker
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v6
             - uses: lycheeverse/lychee-action@v2.0.2
               with:
                   fail: true
