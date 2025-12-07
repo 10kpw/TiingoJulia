@@ -3,7 +3,7 @@ module Core
     using DuckDB
     using DataFrames
     using Logging
-    
+
     # Import Config module from parent directory
     using ..Config
 

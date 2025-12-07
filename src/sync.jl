@@ -1,18 +1,8 @@
-module Sync
-    using Dates
-    using DataFrames
-    using DBInterface
-    using DuckDB
-    using Logging
-    using ZipFile
-    using HTTP
-    
-    using ..Config
-    using ..DB.Core: DuckDBConnection
-    using ..DB.Operations
-    using ..API: get_ticker_data, get_api_key
+using ..DB.Core: DuckDBConnection
+using ..DB.Operations
+using ..API: get_ticker_data, get_api_key
 
-    """
+"""
         download_tickers_duckdb(conn::DuckDBConnection; tickers_url, zip_file_path, csv_file)
 
     Download and process the latest tickers from Tiingo.
@@ -499,6 +489,4 @@ module Sync
         end
         Operations.upsert_stock_data(conn, data, ticker)
         @info "Added historical data for \$ticker"
-    end
-
 end

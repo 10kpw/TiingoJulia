@@ -26,7 +26,7 @@ module Config
     end
 
     const CONFIG = load_config()
-    
+
     module API
         import ..CONFIG
         const ENV_FILE = CONFIG.files.env_file
@@ -50,7 +50,7 @@ module Config
             const HISTORICAL_DATA = "historical_data"
         end
     end
-    
+
     module Filtering
         import ..CONFIG
         const SUPPORTED_EXCHANGES = CONFIG.filtering.supported_exchanges

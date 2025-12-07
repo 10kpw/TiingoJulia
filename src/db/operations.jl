@@ -4,7 +4,7 @@ module Operations
     using DataFrames
     using Dates
     using Logging
-    
+
     using ..Config
     using ..Core: DuckDBConnection
 

@@ -4,7 +4,7 @@ module Schema
     using DataFrames
     using LibPQ
     using Logging
-    
+
     using ..Config
     using ..Core: DuckDBConnection
 
@@ -118,10 +118,10 @@ module Schema
             rethrow(e)
         end
     end
-    
+
     """
         create_or_replace_table(pg_conn::LibPQ.Connection, table_name::String, create_table_query::String)
-        
+
     Create or replace a table in PostgreSQL.
     """
     function create_or_replace_table(pg_conn::LibPQ.Connection, table_name::String, create_table_query::String)

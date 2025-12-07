@@ -4,7 +4,7 @@ module Postgres
     using DBInterface
     using DataFrames
     using Logging
-    
+
     using ..Config
     using ..Core: DuckDBConnection
     using ..Schema: create_or_replace_table, generate_create_table_query

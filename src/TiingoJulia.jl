@@ -42,23 +42,23 @@ module DB
     using LibPQ
     using Logging
     using Base: @kwdef
-    
+
     # Import parent module's Config
     using ..Config
-    
+
     # Include all DB submodules
     include("db/core.jl")
     using .Core
-    
+
     include("db/schema.jl")
     using .Schema
-    
+
     include("db/operations.jl")
     using .Operations
-    
+
     include("db/postgres.jl")
     using .Postgres
-    
+
     # Re-export core database functionality
     export connect_duckdb, close_duckdb, optimize_database
     export create_tables, create_indexes, list_tables
@@ -66,14 +66,14 @@ module DB
     export get_tickers_all, get_tickers_etf, get_tickers_stock
     export connect_postgres, close_postgres, export_to_postgres
     export create_or_replace_table
-    
-    
+
+
     # Custom error types and aliases are imported from submodules
-    
+
     # Global reference to log file handle for cleanup
     const TIINGO_LOG_FILE_HANDLE = Ref{Union{IO,Nothing}}(nothing)
     const LOG_FILE = Config.DB.LOG_FILE
-    
+
     # Set up logging to file
     function setup_logging()
         io = open(LOG_FILE, "a")
@@ -81,7 +81,7 @@ module DB
         logger = SimpleLogger(io)
         global_logger(logger)
     end
-    
+
     # Cleanup logging resources
     function cleanup_logging()
         if TIINGO_LOG_FILE_HANDLE[] !== nothing
@@ -94,17 +94,17 @@ module DB
             end
         end
     end
-    
+
     # Register cleanup to run on exit
     atexit(cleanup_logging)
-    
+
     # Wrapper functions that call Schema.create_tables with proper connection
     function connect_duckdb(path::String = Config.DB.DEFAULT_DUCKDB_PATH)
         conn = Core.connect_duckdb(path)
         Schema.create_tables(conn)
         return conn
     end
-    
+
     # Re-export all functions from submodules
     for name in names(Core, all=false)
         name == :Core && continue
@@ -134,11 +134,11 @@ module API
     using TimeSeries
     using Dates
     using DotEnv
-    
+
     using ..Config
-    
+
     include("api.jl")
-    
+
     export get_api_key, get_ticker_data, fetch_api_data, load_env_file
 end
 
@@ -153,13 +153,13 @@ module Sync
     using Logging
     using ZipFile
     using HTTP
-    
+
     using ..Config
     using ..DB
     using ..API
-    
+
     include("sync.jl")
-    
+
     export download_tickers_duckdb, download_latest_tickers
     export process_tickers_csv, generate_filtered_tickers
     export update_historical, update_historical_parallel, update_historical_sequential
@@ -187,4 +187,3 @@ export create_or_replace_table, create_tables, create_indexes, optimize_database
 export DatabaseConnectionError, DatabaseQueryError, DuckDBConnection, PostgreSQLConnection
 
 end # module TiingoJulia
-
