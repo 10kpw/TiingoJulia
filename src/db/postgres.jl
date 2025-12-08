@@ -262,6 +262,7 @@ module Postgres
         end
     end
 
+    export PostgreSQLConnection
     export connect_postgres, close_postgres, export_to_postgres
     export export_table_to_postgres, export_table_to_postgres_dataframe, export_table_to_postgres_parquet
     export setup_postgres_connection
