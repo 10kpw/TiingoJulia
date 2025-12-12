@@ -130,21 +130,21 @@ module Schema
             pg_conn,
             """
             SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = '\$table_name';
+            WHERE table_schema = 'public' AND table_name = '$table_name';
             """
         ) |> DataFrame
 
         if isempty(table_exists_pg)
             # If the table doesn't exist, create it
             LibPQ.execute(pg_conn, create_table_query)
-            @info "Created table \$table_name in PostgreSQL"
+            @info "Created table $table_name in PostgreSQL"
         else
             # If the table exists, rename it as a backup
-            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS \$(table_name)_backup;")
-            LibPQ.execute(pg_conn, "CREATE TABLE \$(table_name)_backup AS TABLE \$table_name;")
-            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS \$table_name;")
+            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
+            LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
+            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
             LibPQ.execute(pg_conn, create_table_query)
-            @info "Created new table \$table_name in PostgreSQL, old table is stored as \$(table_name)_backup"
+            @info "Created new table $table_name in PostgreSQL, old table is stored as $(table_name)_backup"
         end
     end
 
@@ -155,13 +155,13 @@ module Schema
     Converts all column names to lowercase to avoid case-sensitivity issues.
     """
     function generate_create_table_query(table_name::String, schema::DataFrame)
-        query = "CREATE TABLE IF NOT EXISTS \$(lowercase(table_name)) ("
+        query = "CREATE TABLE IF NOT EXISTS $(lowercase(table_name)) ("
         columns = []
         for row in eachrow(schema)
             column_name = lowercase(row.column_name)
             data_type = row.column_type
             pg_type = map_duckdb_to_postgres_type(data_type)
-            push!(columns, "\$(column_name) \$(pg_type)")
+            push!(columns, "$(column_name) $(pg_type)")
         end
         query *= join(columns, ", ")
 

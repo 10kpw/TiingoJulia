@@ -188,7 +188,7 @@ module Operations
     Helper function to get the row count of a table.
     """
     function get_table_count(conn::DBInterface.Connection, table_name::String)::Int
-        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM \$table_name") |> DataFrame
+        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM $table_name") |> DataFrame
         return result[1, 1]
     end
 

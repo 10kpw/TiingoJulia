@@ -72,7 +72,7 @@ using ..API: get_ticker_data, get_api_key
         try
             DBInterface.execute(conn, """
             CREATE OR REPLACE TABLE us_tickers AS
-            SELECT * FROM read_csv('\$csv_file')
+            SELECT * FROM read_csv('$csv_file')
             """)
             @info "Update us_tickers in DuckDB with the CSV"
         catch e
@@ -87,15 +87,15 @@ using ..API: get_ticker_data, get_api_key
     """
     function create_filtered_tickers(conn::DuckDBConnection)
         @info "Generating filtered tickers table..."
-        exchanges = join(["'\$ex'" for ex in Config.Filtering.SUPPORTED_EXCHANGES], ", ")
-        asset_types = join(["'\$at'" for at in Config.Filtering.SUPPORTED_ASSET_TYPES], ", ")
+        exchanges = join(["'$ex'" for ex in Config.Filtering.SUPPORTED_EXCHANGES], ", ")
+        asset_types = join(["'$at'" for at in Config.Filtering.SUPPORTED_ASSET_TYPES], ", ")
 
         DBInterface.execute(conn, """
             CREATE OR REPLACE TABLE us_tickers_filtered AS
             SELECT * FROM us_tickers
-            WHERE exchange IN (\$exchanges)
+            WHERE exchange IN ($exchanges)
               AND endDate >= (SELECT max(endDate) FROM us_tickers WHERE assetType = 'Stock' and exchange = 'NYSE')
-              AND assetType IN (\$asset_types)
+              AND assetType IN ($asset_types)
               AND ticker NOT LIKE '%/%'
         """)
     end
@@ -158,8 +158,8 @@ using ..API: get_ticker_data, get_api_key
     """
     function update_us_tickers(conn::DuckDBConnection, csv_file::String = Config.DB.DEFAULT_CSV_FILE)
         query = """
-        CREATE OR REPLACE TABLE \$(Config.DB.Tables.US_TICKERS) AS
-        SELECT * FROM read_csv('\$csv_file')
+        CREATE OR REPLACE TABLE $(Config.DB.Tables.US_TICKERS) AS
+        SELECT * FROM read_csv('$csv_file')
         """
         try
             DBInterface.execute(conn, query)
@@ -450,7 +450,7 @@ using ..API: get_ticker_data, get_api_key
         split_tickers = DBInterface.execute(conn, """
         SELECT ticker, splitFactor, date
           FROM historical_data
-         WHERE date = '\$end_date'
+         WHERE date = '$end_date'
            AND splitFactor <> 1.0
         """) |> DataFrame
 
