@@ -27,7 +27,7 @@ module Postgres
                 # Add timeout to connection string if not already present
                 conn_str = if !contains(connection_string, "connect_timeout")
                     sep = contains(connection_string, "?") ? "&" : "?"
-                    "\$connection_string\$(sep)connect_timeout=\$timeout_seconds"
+                    "$connection_string$(sep)connect_timeout=$timeout_seconds"
                 else
                     connection_string
                 end
@@ -129,15 +129,15 @@ module Postgres
         # Check if the table exists in DuckDB
         table_exists = DBInterface.execute(
             duckdb_conn,
-            """SELECT name FROM sqlite_master WHERE type='table' AND name='\$table_name';""",
+            """SELECT name FROM sqlite_master WHERE type='table' AND name='$table_name';""",
         ) |> DataFrame
 
         if isempty(table_exists)
-            error("Table \$table_name does not exist in DuckDB")
+            error("Table $table_name does not exist in DuckDB")
         end
 
         # Get row count
-        row_count = DBInterface.execute(duckdb_conn, "SELECT COUNT(*) FROM \$table_name") |> DataFrame
+        row_count = DBInterface.execute(duckdb_conn, "SELECT COUNT(*) FROM $table_name") |> DataFrame
         row_count = row_count[1, 1]
 
         # Determine whether to use DataFrame or Parquet
@@ -166,18 +166,18 @@ module Postgres
 
         try
             # Read the entire table into a DataFrame
-            df = DBInterface.execute(duckdb_conn, "SELECT * FROM \$table_name") |> DataFrame
-            @info "Loaded \$table_name into DataFrame with \$(nrow(df)) rows"
+            df = DBInterface.execute(duckdb_conn, "SELECT * FROM $table_name") |> DataFrame
+            @info "Loaded $table_name into DataFrame with $(nrow(df)) rows"
 
             # Get the schema and create table
-            schema = DBInterface.execute(duckdb_conn, "DESCRIBE \$table_name") |> DataFrame
+            schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name") |> DataFrame
             create_table_query = generate_create_table_query(table_name, schema)
             create_or_replace_table(pg_conn, table_name, create_table_query)
 
             # Insert data into PostgreSQL
             columns = join(lowercase.(names(df)), ", ")
             placeholders = join(["\$" * string(i) for i in 1:ncol(df)], ", ")
-            insert_query = "INSERT INTO \$table_name (\$columns) VALUES (\$placeholders)"
+            insert_query = "INSERT INTO $table_name ($columns) VALUES ($placeholders)"
 
             LibPQ.load!(
                 (col => df[!, col] for col in names(df)),
@@ -206,12 +206,12 @@ module Postgres
 
         try
             # Export to parquet
-            DBInterface.execute(duckdb_conn, """COPY \$table_name TO '\$parquet_file';""")
-            @info "Exported \$table_name to parquet file"
+            DBInterface.execute(duckdb_conn, """COPY $table_name TO '$parquet_file';""")
+            @info "Exported $table_name to parquet file"
 
             # Get the schema and create table
             table_name_lower = lowercase(table_name)
-            schema = DBInterface.execute(duckdb_conn, "DESCRIBE \$table_name_lower") |> DataFrame
+            schema = DBInterface.execute(duckdb_conn, "DESCRIBE $table_name_lower") |> DataFrame
             create_table_query = generate_create_table_query(table_name_lower, schema)
             create_or_replace_table(pg_conn, table_name_lower, create_table_query)
 
@@ -219,10 +219,10 @@ module Postgres
             setup_postgres_connection(duckdb_conn, pg_host, pg_user, pg_dbname)
             DBInterface.execute(
                 duckdb_conn,
-                """COPY postgres_db.\$table_name FROM '\$parquet_file';"""
+                """COPY postgres_db.$table_name FROM '$parquet_file';"""
             )
             DBInterface.execute(duckdb_conn, "DETACH postgres_db;")
-            @info "Copied data from parquet file to PostgreSQL table \$table_name"
+            @info "Copied data from parquet file to PostgreSQL table $table_name"
         catch e
             @error "Error exporting table \$table_name using Parquet" exception=(e, catch_backtrace())
             rethrow(e)
@@ -253,7 +253,7 @@ module Postgres
             DBInterface.execute(duckdb_conn, "INSTALL postgres;")
             DBInterface.execute(duckdb_conn, "LOAD postgres;")
             DBInterface.execute(duckdb_conn, """
-                ATTACH 'dbname=\$pg_dbname user=\$pg_user host=\$pg_host' AS postgres_db (TYPE postgres);
+                ATTACH 'dbname=$pg_dbname user=$pg_user host=$pg_host' AS postgres_db (TYPE postgres);
             """)
             @info "Successfully set up PostgreSQL connection in DuckDB"
         catch e
