@@ -152,7 +152,13 @@ module Core
 
             # Apply DuckDB optimizations
             DBInterface.execute(conn, "SET memory_limit = '$(memory_limit)GB'")
-            DBInterface.execute(conn, "SET threads = $num_threads")
+
+            # Try to set threads, but don't fail if external threads prevent it
+            try
+                DBInterface.execute(conn, "SET threads = $num_threads")
+            catch e
+                @debug "Could not set threads" exception=e
+            end
 
             # Try to set worker_threads, but don't fail if external threads prevent it
             try
