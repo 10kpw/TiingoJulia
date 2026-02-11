@@ -1,4 +1,4 @@
-using ..DB.Core: DuckDBConnection
+using ..DB.Core: DuckDBConnection, validate_identifier, validate_file_path, validate_sql_value
 using ..DB.Operations
 using ..API: get_ticker_data, get_api_key
 
@@ -69,15 +69,12 @@ using ..API: get_ticker_data, get_api_key
         conn::DuckDBConnection,
         csv_file::String
     )
-        try
-            DBInterface.execute(conn, """
-            CREATE OR REPLACE TABLE us_tickers AS
-            SELECT * FROM read_csv('$csv_file')
-            """)
-            @info "Update us_tickers in DuckDB with the CSV"
-        catch e
-            rethrow(e)
-        end
+        safe_path = validate_file_path(csv_file)
+        DBInterface.execute(conn, """
+        CREATE OR REPLACE TABLE us_tickers AS
+        SELECT * FROM read_csv('$safe_path')
+        """)
+        @info "Update us_tickers in DuckDB with the CSV"
     end
 
     """
@@ -87,8 +84,8 @@ using ..API: get_ticker_data, get_api_key
     """
     function create_filtered_tickers(conn::DuckDBConnection)
         @info "Generating filtered tickers table..."
-        exchanges = join(["'$ex'" for ex in Config.Filtering.SUPPORTED_EXCHANGES], ", ")
-        asset_types = join(["'$at'" for at in Config.Filtering.SUPPORTED_ASSET_TYPES], ", ")
+        exchanges = join(["'" * validate_sql_value(ex) * "'" for ex in Config.Filtering.SUPPORTED_EXCHANGES], ", ")
+        asset_types = join(["'" * validate_sql_value(at) * "'" for at in Config.Filtering.SUPPORTED_ASSET_TYPES], ", ")
 
         DBInterface.execute(conn, """
             CREATE OR REPLACE TABLE us_tickers_filtered AS
@@ -109,7 +106,7 @@ using ..API: get_ticker_data, get_api_key
         for file in [zip_file_path, Config.DB.DEFAULT_CSV_FILE]
             if isfile(file)
                 rm(file)
-                @info "Cleaned up temporary file: \$file"
+                @info "Cleaned up temporary file: $file"
             end
         end
     end
@@ -136,17 +133,17 @@ using ..API: get_ticker_data, get_api_key
             # Verify the table was created and has rows
             filtered_count = Operations.get_table_count(conn, Config.DB.Tables.US_TICKERS_FILTERED)
 
-            @info "Original us_tickers count: \$us_tickers_count"
-            @info "Filtered us_tickers_filtered count: \$filtered_count"
+            @info "Original us_tickers count: $us_tickers_count"
+            @info "Filtered us_tickers_filtered count: $filtered_count"
 
             if filtered_count == 0
                 @warn "us_tickers_filtered table was created but contains no rows"
             else
-                @info "Generated filtered list of US tickers with \$filtered_count rows"
+                @info "Generated filtered list of US tickers with $filtered_count rows"
             end
 
         catch e
-            @error "Error in generate_filtered_tickers: \$(e)"
+            @error "Error in generate_filtered_tickers: $(e)"
             rethrow(e)
         end
     end
@@ -157,16 +154,18 @@ using ..API: get_ticker_data, get_api_key
     Update the us_tickers table in the database from a CSV file.
     """
     function update_us_tickers(conn::DuckDBConnection, csv_file::String = Config.DB.DEFAULT_CSV_FILE)
+        safe_table = validate_identifier(Config.DB.Tables.US_TICKERS)
+        safe_path = validate_file_path(csv_file)
         query = """
-        CREATE OR REPLACE TABLE $(Config.DB.Tables.US_TICKERS) AS
-        SELECT * FROM read_csv('$csv_file')
+        CREATE OR REPLACE TABLE $safe_table AS
+        SELECT * FROM read_csv('$safe_path')
         """
         try
             DBInterface.execute(conn, query)
-            @info "Updated us_tickers table from file: \$csv_file"
+            @info "Updated us_tickers table from file: $csv_file"
         catch e
             @error "Failed to update us_tickers table" exception=(e, catch_backtrace())
-            # throw(DatabaseQueryError("Failed to update us_tickers: \$e", query)) # Error type not available here
+            # throw(DatabaseQueryError("Failed to update us_tickers: $e", query)) # Error type not available here
             rethrow(e)
         end
     end
@@ -231,7 +230,7 @@ using ..API: get_ticker_data, get_api_key
             else
                 latest_date = ticker_latest[1, :latest_date]
                 if latest_date < ticker_end_date
-                    @info "\$i : \$symbol : \$(latest_date + Day(1)) ~ \$ticker_end_date"
+                    @info "$i : $symbol : $(latest_date + Day(1)) ~ $ticker_end_date"
                     try
                         ticker_data = get_ticker_data(
                             row,
@@ -245,14 +244,14 @@ using ..API: get_ticker_data, get_api_key
                         end
                     catch e
                         if isa(e, AssertionError) && occursin("No data returned", e.msg)
-                            @info "\$i : \$symbol has no new data"
+                            @info "$i : $symbol has no new data"
                         else
-                            @warn "Failed to update \$symbol: \$e"
+                            @warn "Failed to update $symbol: $e"
                             push!(error_tickers, symbol)
                         end
                     end
                 else
-                    @info "\$i : \$symbol is up to date"
+                    @info "$i : $symbol is up to date"
                 end
             end
         end
@@ -285,7 +284,7 @@ using ..API: get_ticker_data, get_api_key
             end_idx = min(batch_idx * batch_size, nrow(tickers))
             batch = tickers[start_idx:end_idx, :]
 
-            @info "Processing batch \$batch_idx/\$num_batches" tickers_in_batch=nrow(batch)
+            @info "Processing batch $batch_idx/$num_batches" tickers_in_batch=nrow(batch)
 
             # Use Channel for job queue to limit concurrency
             jobs = Channel{Int}(max_concurrent)
@@ -365,7 +364,7 @@ using ..API: get_ticker_data, get_api_key
                 else
                     push!(batch_missing, ticker)
                     if !isnothing(error)
-                        @warn "Failed to update ticker: \$ticker" exception=error
+                        @warn "Failed to update ticker: $ticker" exception=error
                     end
                 end
             end
@@ -373,7 +372,7 @@ using ..API: get_ticker_data, get_api_key
             append!(all_updated, batch_updated)
             append!(all_missing, batch_missing)
 
-            @info "Batch \$batch_idx complete" updated=length(batch_updated) missing=length(batch_missing)
+            @info "Batch $batch_idx complete" updated=length(batch_updated) missing=length(batch_missing)
         end
 
         @info "Parallel update completed" total_updated=length(all_updated) total_missing=length(all_missing)
@@ -399,31 +398,31 @@ using ..API: get_ticker_data, get_api_key
     )
         symbol = ticker_info.ticker
         push!(missing_tickers, symbol)
-        @info "Adding missing ticker: \$symbol"
+        @info "Adding missing ticker: $symbol"
         try
             ticker_data = get_ticker_data(ticker_info; api_key=api_key)
             if !isempty(ticker_data)
                 Operations.upsert_stock_data(conn, ticker_data, symbol)
                 push!(updated_tickers, symbol)
             else
-                @warn "No data retrieved for \$symbol"
+                @warn "No data retrieved for $symbol"
             end
         catch e
-            @warn "Failed to add historical data for \$symbol: \$e"
+            @warn "Failed to add historical data for $symbol: $e"
         end
     end
 
     function log_update_results(missing_tickers::Vector{String}, updated_tickers::Vector{String}, error_tickers::Vector{String}, add_missing::Bool)
         if !isempty(missing_tickers)
             if add_missing
-                @info "Attempted to add \$(length(missing_tickers)) missing tickers to historical_data"
+                @info "Attempted to add $(length(missing_tickers)) missing tickers to historical_data"
             else
-                @warn "The following tickers are not in historical_data: \$missing_tickers"
+                @warn "The following tickers are not in historical_data: $missing_tickers"
             end
         end
 
         if !isempty(error_tickers)
-            @warn "The following tickers encountered errors during processing: \$error_tickers"
+            @warn "The following tickers encountered errors during processing: $error_tickers"
         end
 
         @info "Historical data update completed" updated_count=length(updated_tickers) missing_count=length(missing_tickers) error_count=length(error_tickers)
@@ -450,9 +449,9 @@ using ..API: get_ticker_data, get_api_key
         split_tickers = DBInterface.execute(conn, """
         SELECT ticker, splitFactor, date
           FROM historical_data
-         WHERE date = '$end_date'
+         WHERE date = ?
            AND splitFactor <> 1.0
-        """) |> DataFrame
+        """, [end_date]) |> DataFrame
 
         for (i, row) in enumerate(eachrow(split_tickers))
             symbol = row.ticker
@@ -461,11 +460,11 @@ using ..API: get_ticker_data, get_api_key
             end
             ticker_info = tickers[tickers.ticker .== symbol, :]
             if isempty(ticker_info)
-                @warn "No ticker info found for \$symbol"
+                @warn "No ticker info found for $symbol"
                 continue
             end
             start_date = ticker_info[1, :start_date]
-            @info "\$i: Updating split ticker \$symbol from \$start_date to \$end_date"
+            @info "$i: Updating split ticker $symbol from $start_date to $end_date"
             ticker_data = get_ticker_data(ticker_info[1, :]; api_key=api_key)
             Operations.upsert_stock_data(conn, ticker_data, symbol)
         end
@@ -482,11 +481,25 @@ using ..API: get_ticker_data, get_api_key
         ticker::String,
         api_key::String = get_api_key()
     )
-        data = get_ticker_data(ticker, api_key=api_key)
+        # Look up ticker info from the database to get a DataFrameRow for get_ticker_data
+        ticker_df = DBInterface.execute(conn, """
+            SELECT ticker, exchange, assettype as asset_type,
+                   startdate as start_date, enddate as end_date
+            FROM us_tickers_filtered
+            WHERE ticker = ?
+        """, [ticker]) |> DataFrame
+
+        if isempty(ticker_df)
+            @warn "Ticker $ticker not found in us_tickers_filtered"
+            return
+        end
+
+        ticker_info = ticker_df[1, :]
+        data = get_ticker_data(ticker_info; api_key=api_key)
         if isempty(data)
-            @warn "No data retrieved for \$ticker"
+            @warn "No data retrieved for $ticker"
             return
         end
         Operations.upsert_stock_data(conn, data, ticker)
-        @info "Added historical data for \$ticker"
-end
+        @info "Added historical data for $ticker"
+    end

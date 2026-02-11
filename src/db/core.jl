@@ -19,6 +19,50 @@ module Core
 
     const DuckDBConnection = DBInterface.Connection
 
+    # Valid SQL identifier pattern: alphanumeric + underscore, must start with letter/underscore
+    const VALID_IDENTIFIER_RE = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+
+    """
+        validate_identifier(name::String)::String
+
+    Validate that a string is a safe SQL identifier (table name, column name).
+    Prevents SQL injection when identifiers must be interpolated into queries.
+    Returns the name if valid, throws ArgumentError otherwise.
+    """
+    function validate_identifier(name::String)::String
+        if !occursin(VALID_IDENTIFIER_RE, name)
+            throw(ArgumentError("Invalid SQL identifier: '$name'. Must match pattern: $VALID_IDENTIFIER_RE"))
+        end
+        return name
+    end
+
+    """
+        validate_file_path(path::String)::String
+
+    Validate that a file path does not contain characters that could enable SQL injection.
+    Returns the path if valid, throws ArgumentError otherwise.
+    """
+    function validate_file_path(path::String)::String
+        if occursin('\'', path) || occursin(';', path)
+            throw(ArgumentError("File path contains unsafe characters: '$path'"))
+        end
+        return path
+    end
+
+    """
+        validate_sql_value(value::String)::String
+
+    Validate that a string value does not contain characters that could break out of
+    a SQL string literal (single quotes). Use for config-sourced values interpolated into SQL.
+    Returns the value if valid, throws ArgumentError otherwise.
+    """
+    function validate_sql_value(value::String)::String
+        if occursin('\'', value)
+            throw(ArgumentError("SQL value contains unsafe characters: '$value'"))
+        end
+        return value
+    end
+
     """
         verify_duckdb_integrity(path::String)
 
@@ -73,7 +117,7 @@ module Core
     """
     function connect_duckdb(path::String = Config.DB.DEFAULT_DUCKDB_PATH)::DuckDBConnection
         try
-            @info "Attempting to connect to DuckDB at path: \$path"
+            @info "Attempting to connect to DuckDB at path: $path"
             conn = DBInterface.connect(DuckDB.DB, path)
             configure_database(conn)
             # We need to call create_tables here, but it's in Schema module.
@@ -85,9 +129,9 @@ module Core
             # Let's keep it simple: Core returns connection.
             return conn
         catch e
-            @warn "Failed to connect to existing database: \$e"
+            @warn "Failed to connect to existing database: $e"
 
-            @info "Attempting to create a new database at path: \$path"
+            @info "Attempting to create a new database at path: $path"
             try
                 # Ensure directory exists
                 mkpath(dirname(path))
@@ -96,7 +140,7 @@ module Core
                 return conn
             catch new_e
                 @error "Failed to create new database" exception=(new_e, catch_backtrace())
-                throw(DatabaseConnectionError("Failed to connect to or create DuckDB: \$new_e"))
+                throw(DatabaseConnectionError("Failed to connect to or create DuckDB: $new_e"))
             end
         end
     end
@@ -173,7 +217,7 @@ module Core
             DBInterface.execute(conn, "VACUUM")
             DBInterface.execute(conn, "ANALYZE")
 
-            @info "Database optimization completed" memory_limit="\$(memory_limit)GB" threads=num_threads
+            @info "Database optimization completed" memory_limit="$(memory_limit)GB" threads=num_threads
         catch e
             @warn "Database optimization failed" exception=e
             rethrow(e)
@@ -181,4 +225,5 @@ module Core
     end
     export verify_duckdb_integrity, configure_database, connect_duckdb, close_duckdb, optimize_database
     export DuckDBConnection, DatabaseConnectionError, DatabaseQueryError
+    export validate_identifier, validate_file_path, validate_sql_value
 end

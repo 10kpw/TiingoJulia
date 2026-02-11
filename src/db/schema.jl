@@ -6,7 +6,7 @@ module Schema
     using Logging
 
     using ..Config
-    using ..Core: DuckDBConnection
+    using ..Core: DuckDBConnection, validate_identifier
 
     """
         create_tables(conn::DuckDBConnection)
@@ -56,9 +56,9 @@ module Schema
         for (table_name, query) in tables
             try
                 DBInterface.execute(conn, query)
-                @info "Created table if not exists: \$table_name"
+                @info "Created table if not exists: $table_name"
             catch e
-                @error "Failed to create table: \$table_name" exception=(e, catch_backtrace())
+                @error "Failed to create table: $table_name" exception=(e, catch_backtrace())
             end
         end
     end
@@ -111,7 +111,7 @@ module Schema
                 ORDER BY table_name
             """) |> DataFrame
 
-            @info "Found \$(nrow(result)) tables in database"
+            @info "Found $(nrow(result)) tables in database"
             return result
         catch e
             @warn "Failed to list tables" exception=e
@@ -125,26 +125,27 @@ module Schema
     Create or replace a table in PostgreSQL.
     """
     function create_or_replace_table(pg_conn::LibPQ.Connection, table_name::String, create_table_query::String)
-        # Check if the table exists in PostgreSQL
+        safe_name = validate_identifier(table_name)
+        backup_name = validate_identifier("$(table_name)_backup")
+
+        # Check if the table exists in PostgreSQL (use parameterized query for value)
         table_exists_pg = LibPQ.execute(
             pg_conn,
-            """
-            SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = '$table_name';
-            """
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = \$1;",
+            [safe_name]
         ) |> DataFrame
 
         if isempty(table_exists_pg)
             # If the table doesn't exist, create it
             LibPQ.execute(pg_conn, create_table_query)
-            @info "Created table $table_name in PostgreSQL"
+            @info "Created table $safe_name in PostgreSQL"
         else
             # If the table exists, rename it as a backup
-            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $(table_name)_backup;")
-            LibPQ.execute(pg_conn, "CREATE TABLE $(table_name)_backup AS TABLE $table_name;")
-            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $table_name;")
+            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $backup_name;")
+            LibPQ.execute(pg_conn, "CREATE TABLE $backup_name AS TABLE $safe_name;")
+            LibPQ.execute(pg_conn, "DROP TABLE IF EXISTS $safe_name;")
             LibPQ.execute(pg_conn, create_table_query)
-            @info "Created new table $table_name in PostgreSQL, old table is stored as $(table_name)_backup"
+            @info "Created new table $safe_name in PostgreSQL, old table is stored as $backup_name"
         end
     end
 
