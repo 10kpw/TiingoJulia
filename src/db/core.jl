@@ -185,17 +185,23 @@ module Core
                 16  # Default to 16GB if detection fails
             end
 
-            # Set memory limit to 75% of available memory
-            memory_limit = max(4, Int(floor(total_memory_gb * 0.75)))
+            # Set memory limit to ~75% of available memory, but don't hardcode a 4GB floor
+            memory_limit_gb = total_memory_gb * 0.75
 
             # Detect CPU threads
             num_threads = Sys.CPU_THREADS
             worker_threads = max(1, num_threads - 1)
 
-            @info "System resources detected" total_memory_gb memory_limit_gb=memory_limit threads=num_threads
+            @info "System resources detected" total_memory_gb memory_limit_gb=memory_limit_gb threads=num_threads
 
             # Apply DuckDB optimizations
-            DBInterface.execute(conn, "SET memory_limit = '$(memory_limit)GB'")
+            if memory_limit_gb >= 1
+                memory_limit = max(1, Int(floor(memory_limit_gb)))
+                DBInterface.execute(conn, "SET memory_limit = '$(memory_limit)GB'")
+            else
+                memory_limit_mb = max(256, Int(floor(memory_limit_gb * 1024)))
+                DBInterface.execute(conn, "SET memory_limit = '$(memory_limit_mb)MB'")
+            end
 
             # Try to set threads, but don't fail if external threads prevent it
             try
@@ -211,13 +217,19 @@ module Core
                 @debug "Could not set worker_threads" exception=e
             end
 
-            DBInterface.execute(conn, "SET temp_directory = '/tmp/duckdb'")
+            tmp_dir = get(ENV, "TIINGO_DUCKDB_TMP", tempdir())
+            try
+                mkpath(tmp_dir)
+                DBInterface.execute(conn, "SET temp_directory = '$(tmp_dir)'")
+            catch e
+                @debug "Could not set temp_directory" exception=e
+            end
 
             # Run VACUUM and ANALYZE
             DBInterface.execute(conn, "VACUUM")
             DBInterface.execute(conn, "ANALYZE")
 
-            @info "Database optimization completed" memory_limit="$(memory_limit)GB" threads=num_threads
+            @info "Database optimization completed" threads=num_threads
         catch e
             @warn "Database optimization failed" exception=e
             rethrow(e)

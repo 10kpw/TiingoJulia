@@ -20,32 +20,21 @@ using TiingoJulia.API
             @test_throws ErrorException get_api_key()
         end
 
-        # Test that the function throws an error when the key is not set
-        # We need to temporarily remove the API key from ENV and disable .env file loading
+        # Test that the function throws an error when the key is not set,
+        # without depending on any repo-local .env file.
         original_key = get(ENV, "TIINGO_API_KEY", nothing)
-        env_file_exists = isfile(".env")
-        temp_env_file = nothing
+        missing_env_path = tempname()
 
         if !isnothing(original_key)
             delete!(ENV, "TIINGO_API_KEY")
         end
 
-        # Temporarily move .env file if it exists
-        if env_file_exists
-            temp_env_file = tempname()
-            mv(".env", temp_env_file)
-        end
-
         try
-            @test_throws ErrorException get_api_key()
+            @test_throws ErrorException get_api_key(env_path=missing_env_path, reload_env=true)
         finally
             # Restore the original API key
             if !isnothing(original_key)
                 ENV["TIINGO_API_KEY"] = original_key
-            end
-            # Restore .env file if it existed
-            if env_file_exists && !isnothing(temp_env_file)
-                mv(temp_env_file, ".env")
             end
         end
     end
@@ -59,50 +48,50 @@ using TiingoJulia.API
         )
         ticker_info = ticker_df[1, :]
 
-        # Test with a simple case - we'll just test that the function doesn't error
-        # when called with proper parameters, but we'll skip the actual API call
-        # since we don't want to make real API calls in tests
-        # This will throw because we don't have a valid API key for testing
-        # or because the API call will fail
-        try
-            get_ticker_data(ticker_info)
-            # If it doesn't throw, that's also acceptable (API key might be valid)
-            @test true
-        catch e
-            # If it throws an error, that's expected
-            @test e isa Exception
+        # Run live API tests only when explicitly enabled
+        if get(ENV, "TIINGO_TEST_LIVE_API", "false") == "true"
+            try
+                get_ticker_data(ticker_info)
+                @test true
+            catch e
+                @test e isa Exception
+            end
+        else
+            @test_skip "Skipping live API test (set TIINGO_TEST_LIVE_API=true to enable)"
         end
     end
 
     @testset "fetch_api_data" begin
-        # Test with a mock response using a different approach
-        # We'll test the error handling path since we can't easily mock HTTP.get
-        # The function will throw an HTTP.Exceptions.ConnectError for invalid URLs
-        @test_throws HTTP.Exceptions.ConnectError fetch_api_data(
-            "http://invalid-url-for-testing.com",
-            Dict("param" => "value"),
-            Dict("Authorization" => "Token invalid-key")
-        )
+        if get(ENV, "TIINGO_TEST_LIVE_API", "false") == "true"
+            # Test the error handling path using a known-bad URL
+            @test_throws HTTP.Exceptions.ConnectError fetch_api_data(
+                "http://invalid-url-for-testing.com",
+                Dict("param" => "value"),
+                Dict("Authorization" => "Token invalid-key")
+            )
+        else
+            @test_skip "Skipping live network test (set TIINGO_TEST_LIVE_API=true to enable)"
+        end
     end
 
     @testset "download_tickers_duckdb" begin
-        # Create a mock DuckDB connection
-        conn = DBInterface.connect(DuckDB.DB)
+        if get(ENV, "TIINGO_TEST_LIVE_API", "false") == "true"
+            # Create a mock DuckDB connection
+            conn = DBInterface.connect(DuckDB.DB)
 
-        # Test the function with a simple case
-        # Since this function downloads real data, we'll test that it doesn't error
-        # when called with proper parameters
-        try
-            TiingoJulia.download_tickers_duckdb(conn)
-            # If it gets here, the function ran without error
-            @test true
-        catch e
-            # If it fails due to network issues or API problems, that's expected in CI
-            @test e isa Exception
+            # Test the function with a simple case
+            try
+                TiingoJulia.download_tickers_duckdb(conn)
+                @test true
+            catch e
+                @test e isa Exception
+            end
+
+            # Clean up
+            DBInterface.close!(conn)
+        else
+            @test_skip "Skipping live download test (set TIINGO_TEST_LIVE_API=true to enable)"
         end
-
-        # Clean up
-        DBInterface.close!(conn)
     end
 
     # @testset "generate_filtered_tickers" begin

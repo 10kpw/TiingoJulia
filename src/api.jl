@@ -7,17 +7,22 @@ using DotEnv
 
 using ..Config
 
+const ENV_LOAD_ATTEMPTED = Ref(false)
+
+function resolve_env_path(env_file::String)::String
+    return isabspath(env_file) ? env_file : joinpath(dirname(@__DIR__), env_file)
+end
+
 """
     load_env_file(env_path::String)::Bool
 
 Load environment variables from .env file.
 Returns true if successful, false otherwise.
 """
-function load_env_file(env_path::String)::Bool
+function load_env_file(env_path::String; override::Bool=false)::Bool
     try
         if isfile(env_path)
-            # Force override to ensure correct API key is loaded even if ENV is already set
-            DotEnv.load!(env_path; override=true)
+            DotEnv.load!(env_path; override=override)
             return true
         end
         return false
@@ -28,25 +33,24 @@ function load_env_file(env_path::String)::Bool
 end
 
 """
-    get_api_key()::String
+    get_api_key(; env_path::Union{String,Nothing}=nothing, reload_env::Bool=false)::String
 
 Retrieve the Tiingo API key from environment variables or .env file.
 Throws an error if the API key is not found.
 """
-function get_api_key()::String
-    # Try to load .env file
-    env_path = joinpath(dirname(@__DIR__), Config.API.ENV_FILE)
-    if !load_env_file(env_path)
-        @warn "No .env file found at $env_path"
+function get_api_key(; env_path::Union{String,Nothing}=nothing, reload_env::Bool=false)::String
+    resolved_env_path = isnothing(env_path) ? resolve_env_path(Config.API.ENV_FILE) : env_path
+
+    if reload_env || !ENV_LOAD_ATTEMPTED[]
+        load_env_file(resolved_env_path)
+        ENV_LOAD_ATTEMPTED[] = true
     end
 
-    api_key = get(ENV, Config.API.API_KEY_NAME, nothing)
-    if isnothing(api_key)
-        available_keys = join(keys(ENV), ", ")
+    api_key = strip(get(ENV, Config.API.API_KEY_NAME, ""))
+    if isempty(api_key)
         error("""
             $(Config.API.API_KEY_NAME) not found in environment variables.
-            Available keys: $available_keys
-            Please set it in your .env file at: $env_path
+            Set it in your shell environment or in: $resolved_env_path
         """)
     end
 
@@ -100,30 +104,71 @@ function fetch_api_data(
     query::Dict,
     headers::Dict;
     max_retries::Int = Config.API.MAX_RETRIES,
-    retry_delay::Int = Config.API.RETRY_DELAY
+    retry_delay::Int = Config.API.RETRY_DELAY,
+    connect_timeout::Real = 10,
+    readtimeout::Real = 30
 )
+    last_error = nothing
+
     for attempt in 1:max_retries
         @info "API request attempt $attempt for URL: $url"
+        response = nothing
         try
-            response = HTTP.get(url, query=query, headers=headers)
-            if response.status != 200
-                throw(ErrorException("Failed to fetch data: $(String(response.body))"))
-            end
-
-            data = JSON3.read(String(response.body))
-            if isempty(data)
-                throw(ErrorException("No data returned from $url"))
-            end
-
-            return data
+            response = HTTP.get(
+                url,
+                query=query,
+                headers=headers,
+                connect_timeout=connect_timeout,
+                readtimeout=readtimeout
+            )
         catch e
+            last_error = e
             @warn "API request attempt $attempt failed" exception=e
 
             if attempt < max_retries
                 sleep(retry_delay * 2^(attempt - 1))  # Exponential backoff
+                continue
             else
                 rethrow(e)
             end
         end
+
+        status = response.status
+        if status == 200
+            data = JSON3.read(String(response.body))
+            if isempty(data)
+                throw(ErrorException("No data returned from $url"))
+            end
+            return data
+        end
+
+        retryable = status == 429 || (status >= 500 && status <= 599)
+        body = String(response.body)
+        err = ErrorException("HTTP $status for $url: $body")
+        last_error = err
+
+        if retryable && attempt < max_retries
+            retry_after = HTTP.header(response, "Retry-After")
+            delay = retry_delay * 2^(attempt - 1)
+            if retry_after !== nothing
+                parsed = try
+                    parse(Int, retry_after)
+                catch
+                    nothing
+                end
+                if parsed !== nothing
+                    delay = max(delay, parsed)
+                end
+            end
+            @warn "API request retryable failure" status=status delay_seconds=delay
+            sleep(delay)
+        else
+            throw(err)
+        end
+    end
+
+    # Fallback; this should be unreachable but keeps return path explicit
+    if last_error !== nothing
+        throw(last_error)
     end
 end

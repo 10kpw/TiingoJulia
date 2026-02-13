@@ -82,8 +82,9 @@ module Operations
             return 0
         end
 
-        # Filter data for the specific ticker if needed
-        ticker_data = filter(row -> row.ticker == ticker, data)
+        # Filter data for the specific ticker only if the column exists
+        has_ticker_col = :ticker in names(data)
+        ticker_data = has_ticker_col ? filter(row -> row.ticker == ticker, data) : data
         if nrow(ticker_data) == 0
             return 0
         end

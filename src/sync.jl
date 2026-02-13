@@ -16,7 +16,7 @@ using ..API: get_ticker_data, get_api_key
         try
             # Step 1: Download and unzip
             @info "Starting ticker download and processing..."
-            download_latest_tickers(tickers_url, zip_file_path)
+            download_latest_tickers(tickers_url, zip_file_path, csv_file)
             process_tickers_csv(conn, csv_file)
 
             # Step 2: Create filtered table and verify
@@ -36,28 +36,50 @@ using ..API: get_ticker_data, get_api_key
             @error "Error in download_tickers_duckdb" exception=(e, catch_backtrace())
             rethrow(e)
         finally
-            cleanup_files(zip_file_path)
+            cleanup_files(zip_file_path, csv_file)
         end
     end
 
     """
-        download_latest_tickers(url::String, zip_file_path::String)
+        download_latest_tickers(url::String, zip_file_path::String, csv_file::String)
 
     Helper function to download and unzip a file.
     """
     function download_latest_tickers(
         url::String = Config.API.TICKERS_URL,
-        zip_file_path::String = Config.DB.ZIP_FILE_PATH
+        zip_file_path::String = Config.DB.ZIP_FILE_PATH,
+        csv_file::String = Config.DB.DEFAULT_CSV_FILE
     )
         HTTP.download(url, zip_file_path)
-        r = ZipFile.Reader(zip_file_path)
-        for f in r.files
-            open(f.name, "w") do io
-                write(io, read(f))
-            end
+
+        target_path = csv_file
+        target_basename = basename(target_path)
+        target_dir = dirname(target_path)
+        if target_dir != "." && !isempty(target_dir)
+            mkpath(target_dir)
         end
-        close(r)
-        @info "Downloaded and unzipped: supported_tickers.csv"
+
+        found = false
+        reader = ZipFile.Reader(zip_file_path)
+        try
+            for f in reader.files
+                if basename(f.name) == target_basename
+                    open(target_path, "w") do io
+                        write(io, read(f))
+                    end
+                    found = true
+                    break
+                end
+            end
+        finally
+            close(reader)
+        end
+
+        if !found
+            error("CSV file '$target_basename' not found in zip archive: $zip_file_path")
+        end
+
+        @info "Downloaded and unzipped: $target_basename"
     end
 
     """
@@ -102,8 +124,8 @@ using ..API: get_ticker_data, get_api_key
 
     Helper function to clean up temporary files.
     """
-    function cleanup_files(zip_file_path::String)
-        for file in [zip_file_path, Config.DB.DEFAULT_CSV_FILE]
+    function cleanup_files(zip_file_path::String, csv_file::String)
+        for file in [zip_file_path, csv_file]
             if isfile(file)
                 rm(file)
                 @info "Cleaned up temporary file: $file"
@@ -226,7 +248,12 @@ using ..API: get_ticker_data, get_api_key
             ticker_latest = filter(r -> r.ticker == symbol, latest_dates_df)
 
             if isempty(ticker_latest)
-                handle_missing_ticker(conn, row, api_key, missing_tickers, updated_tickers)
+                if add_missing
+                    handle_missing_ticker(conn, row, api_key, missing_tickers, updated_tickers)
+                else
+                    push!(missing_tickers, symbol)
+                    @info "$i : $symbol is missing and add_missing=false"
+                end
             else
                 latest_date = ticker_latest[1, :latest_date]
                 if latest_date < ticker_end_date
@@ -243,7 +270,8 @@ using ..API: get_ticker_data, get_api_key
                             push!(updated_tickers, symbol)
                         end
                     catch e
-                        if isa(e, AssertionError) && occursin("No data returned", e.msg)
+                        if (isa(e, ErrorException) && occursin("No data returned", e.msg)) ||
+                           (isa(e, AssertionError) && occursin("No data returned", e.msg))
                             @info "$i : $symbol has no new data"
                         else
                             @warn "Failed to update $symbol: $e"
@@ -289,9 +317,27 @@ using ..API: get_ticker_data, get_api_key
             # Use Channel for job queue to limit concurrency
             jobs = Channel{Int}(max_concurrent)
             results = Channel{Tuple{String, Bool, Union{Exception, Nothing}}}(nrow(batch))
+            write_queue = Channel{Tuple{String, Union{DataFrame, Nothing}, Bool, Union{Exception, Nothing}}}(nrow(batch))
 
             # Spawn workers
             @sync begin
+                # Single writer to avoid concurrent DB writes on one connection
+                @async begin
+                    for (ticker, data, success, error) in write_queue
+                        if data !== nothing
+                            try
+                                Operations.upsert_stock_data_bulk(conn, data, ticker)
+                                put!(results, (ticker, true, nothing))
+                            catch e
+                                put!(results, (ticker, false, e))
+                            end
+                        else
+                            put!(results, (ticker, success, error))
+                        end
+                    end
+                    close(results)
+                end
+
                 # Producer: add jobs to queue
                 @async begin
                     for i in 1:nrow(batch)
@@ -301,8 +347,9 @@ using ..API: get_ticker_data, get_api_key
                 end
 
                 # Consumers: process jobs with limited concurrency
+                worker_tasks = Task[]
                 for _ in 1:max_concurrent
-                    @async begin
+                    t = @async begin
                         for job_idx in jobs
                             row = batch[job_idx, :]
                             ticker = row.ticker
@@ -317,13 +364,12 @@ using ..API: get_ticker_data, get_api_key
                                     if add_missing
                                         ticker_data = get_ticker_data(row; api_key=api_key)
                                         if !isempty(ticker_data)
-                                            Operations.upsert_stock_data_bulk(conn, ticker_data, ticker)
-                                            put!(results, (ticker, true, nothing))
+                                            put!(write_queue, (ticker, ticker_data, true, nothing))
                                         else
-                                            put!(results, (ticker, false, ErrorException("No data retrieved")))
+                                            put!(write_queue, (ticker, nothing, false, ErrorException("No data retrieved")))
                                         end
                                     else
-                                        put!(results, (ticker, false, nothing))
+                                        put!(write_queue, (ticker, nothing, false, nothing))
                                     end
                                 else
                                     latest_date = ticker_latest[1, :latest_date]
@@ -335,24 +381,30 @@ using ..API: get_ticker_data, get_api_key
                                             api_key = api_key
                                         )
                                         if !isempty(ticker_data)
-                                            Operations.upsert_stock_data_bulk(conn, ticker_data, ticker)
-                                            put!(results, (ticker, true, nothing))
+                                            put!(write_queue, (ticker, ticker_data, true, nothing))
                                         else
-                                            put!(results, (ticker, false, ErrorException("No new data")))
+                                            put!(write_queue, (ticker, nothing, false, ErrorException("No new data")))
                                         end
                                     else
-                                        put!(results, (ticker, true, nothing))
+                                        put!(write_queue, (ticker, nothing, true, nothing))
                                     end
                                 end
                             catch e
-                                put!(results, (ticker, false, e))
+                                put!(write_queue, (ticker, nothing, false, e))
                             end
                         end
                     end
+                    push!(worker_tasks, t)
+                end
+
+                # Close write queue when all workers are done
+                @async begin
+                    for t in worker_tasks
+                        wait(t)
+                    end
+                    close(write_queue)
                 end
             end
-
-            close(results)
 
             # Collect results
             batch_updated = String[]

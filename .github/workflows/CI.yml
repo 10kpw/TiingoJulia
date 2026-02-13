@@ -38,6 +38,9 @@ jobs:
               with:
                   version: ${{ matrix.version }}
                   arch: ${{ matrix.arch }}
+            - name: Validate release hygiene
+              run: |
+                  julia --project=. scripts/ci/validate_release_hygiene.jl
             - uses: julia-actions/cache@v2
             - uses: julia-actions/julia-buildpkg@v1
             - name: Setup test environment
