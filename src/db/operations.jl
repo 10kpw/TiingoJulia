@@ -6,7 +6,7 @@ module Operations
     using Logging
 
     using ..Config
-    using ..Core: DuckDBConnection
+    using ..Core: DuckDBConnection, validate_identifier
 
     """
         upsert_stock_data(conn::DuckDBConnection, data::DataFrame, ticker::String)
@@ -61,7 +61,7 @@ module Operations
             DBInterface.execute(conn, "COMMIT")
         catch e
             DBInterface.execute(conn, "ROLLBACK")
-            @error "Error upserting stock data for \$ticker" exception=(e, catch_backtrace())
+            @error "Error upserting stock data for $ticker" exception=(e, catch_backtrace())
             rethrow(e)
         end
 
@@ -82,8 +82,9 @@ module Operations
             return 0
         end
 
-        # Filter data for the specific ticker if needed
-        ticker_data = filter(row -> row.ticker == ticker, data)
+        # Filter data for the specific ticker only if the column exists
+        has_ticker_col = :ticker in names(data)
+        ticker_data = has_ticker_col ? filter(row -> row.ticker == ticker, data) : data
         if nrow(ticker_data) == 0
             return 0
         end
@@ -132,7 +133,7 @@ module Operations
             DBInterface.execute(conn, "COMMIT")
         catch e
             DBInterface.execute(conn, "ROLLBACK")
-            @error "Error bulk upserting stock data for \$ticker" exception=(e, catch_backtrace())
+            @error "Error bulk upserting stock data for $ticker" exception=(e, catch_backtrace())
             rethrow(e)
         end
 
@@ -188,7 +189,8 @@ module Operations
     Helper function to get the row count of a table.
     """
     function get_table_count(conn::DBInterface.Connection, table_name::String)::Int
-        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM $table_name") |> DataFrame
+        safe_name = validate_identifier(table_name)
+        result = DBInterface.execute(conn, "SELECT COUNT(*) FROM $safe_name") |> DataFrame
         return result[1, 1]
     end
 

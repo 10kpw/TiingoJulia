@@ -19,6 +19,50 @@ module Core
 
     const DuckDBConnection = DBInterface.Connection
 
+    # Valid SQL identifier pattern: alphanumeric + underscore, must start with letter/underscore
+    const VALID_IDENTIFIER_RE = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+
+    """
+        validate_identifier(name::String)::String
+
+    Validate that a string is a safe SQL identifier (table name, column name).
+    Prevents SQL injection when identifiers must be interpolated into queries.
+    Returns the name if valid, throws ArgumentError otherwise.
+    """
+    function validate_identifier(name::String)::String
+        if !occursin(VALID_IDENTIFIER_RE, name)
+            throw(ArgumentError("Invalid SQL identifier: '$name'. Must match pattern: $VALID_IDENTIFIER_RE"))
+        end
+        return name
+    end
+
+    """
+        validate_file_path(path::String)::String
+
+    Validate that a file path does not contain characters that could enable SQL injection.
+    Returns the path if valid, throws ArgumentError otherwise.
+    """
+    function validate_file_path(path::String)::String
+        if occursin('\'', path) || occursin(';', path)
+            throw(ArgumentError("File path contains unsafe characters: '$path'"))
+        end
+        return path
+    end
+
+    """
+        validate_sql_value(value::String)::String
+
+    Validate that a string value does not contain characters that could break out of
+    a SQL string literal (single quotes). Use for config-sourced values interpolated into SQL.
+    Returns the value if valid, throws ArgumentError otherwise.
+    """
+    function validate_sql_value(value::String)::String
+        if occursin('\'', value)
+            throw(ArgumentError("SQL value contains unsafe characters: '$value'"))
+        end
+        return value
+    end
+
     """
         verify_duckdb_integrity(path::String)
 
@@ -73,7 +117,7 @@ module Core
     """
     function connect_duckdb(path::String = Config.DB.DEFAULT_DUCKDB_PATH)::DuckDBConnection
         try
-            @info "Attempting to connect to DuckDB at path: \$path"
+            @info "Attempting to connect to DuckDB at path: $path"
             conn = DBInterface.connect(DuckDB.DB, path)
             configure_database(conn)
             # We need to call create_tables here, but it's in Schema module.
@@ -85,9 +129,9 @@ module Core
             # Let's keep it simple: Core returns connection.
             return conn
         catch e
-            @warn "Failed to connect to existing database: \$e"
+            @warn "Failed to connect to existing database: $e"
 
-            @info "Attempting to create a new database at path: \$path"
+            @info "Attempting to create a new database at path: $path"
             try
                 # Ensure directory exists
                 mkpath(dirname(path))
@@ -96,7 +140,7 @@ module Core
                 return conn
             catch new_e
                 @error "Failed to create new database" exception=(new_e, catch_backtrace())
-                throw(DatabaseConnectionError("Failed to connect to or create DuckDB: \$new_e"))
+                throw(DatabaseConnectionError("Failed to connect to or create DuckDB: $new_e"))
             end
         end
     end
@@ -141,17 +185,23 @@ module Core
                 16  # Default to 16GB if detection fails
             end
 
-            # Set memory limit to 75% of available memory
-            memory_limit = max(4, Int(floor(total_memory_gb * 0.75)))
+            # Set memory limit to ~75% of available memory, but don't hardcode a 4GB floor
+            memory_limit_gb = total_memory_gb * 0.75
 
             # Detect CPU threads
             num_threads = Sys.CPU_THREADS
             worker_threads = max(1, num_threads - 1)
 
-            @info "System resources detected" total_memory_gb memory_limit_gb=memory_limit threads=num_threads
+            @info "System resources detected" total_memory_gb memory_limit_gb=memory_limit_gb threads=num_threads
 
             # Apply DuckDB optimizations
-            DBInterface.execute(conn, "SET memory_limit = '$(memory_limit)GB'")
+            if memory_limit_gb >= 1
+                memory_limit = max(1, Int(floor(memory_limit_gb)))
+                DBInterface.execute(conn, "SET memory_limit = '$(memory_limit)GB'")
+            else
+                memory_limit_mb = max(256, Int(floor(memory_limit_gb * 1024)))
+                DBInterface.execute(conn, "SET memory_limit = '$(memory_limit_mb)MB'")
+            end
 
             # Try to set threads, but don't fail if external threads prevent it
             try
@@ -167,13 +217,19 @@ module Core
                 @debug "Could not set worker_threads" exception=e
             end
 
-            DBInterface.execute(conn, "SET temp_directory = '/tmp/duckdb'")
+            tmp_dir = get(ENV, "TIINGO_DUCKDB_TMP", tempdir())
+            try
+                mkpath(tmp_dir)
+                DBInterface.execute(conn, "SET temp_directory = '$(tmp_dir)'")
+            catch e
+                @debug "Could not set temp_directory" exception=e
+            end
 
             # Run VACUUM and ANALYZE
             DBInterface.execute(conn, "VACUUM")
             DBInterface.execute(conn, "ANALYZE")
 
-            @info "Database optimization completed" memory_limit="\$(memory_limit)GB" threads=num_threads
+            @info "Database optimization completed" threads=num_threads
         catch e
             @warn "Database optimization failed" exception=e
             rethrow(e)
@@ -181,4 +237,5 @@ module Core
     end
     export verify_duckdb_integrity, configure_database, connect_duckdb, close_duckdb, optimize_database
     export DuckDBConnection, DatabaseConnectionError, DatabaseQueryError
+    export validate_identifier, validate_file_path, validate_sql_value
 end

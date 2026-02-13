@@ -1,0 +1,25 @@
+[filtering]
+# Supported exchanges for `us_tickers_filtered`
+supported_exchanges = ["NYSE", "NASDAQ", "NYSE ARCA", "AMEX", "ASX"]
+# Supported instrument types
+supported_asset_types = ["Stock", "ETF"]
+
+[api]
+# Base URL for daily price history
+base_url = "https://api.tiingo.com/tiingo/daily"
+# URL for supported ticker metadata archive
+tickers_url = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip"
+# HTTP retry behavior
+max_retries = 3
+retry_delay = 2
+
+[files]
+# Local environment file for secrets
+env_file = ".env"
+# Temporary files used during ticker sync
+zip_file = "supported_tickers.zip"
+csv_file = "supported_tickers.csv"
+
+[environment]
+# Environment variable used to read the Tiingo API key
+api_key_name = "TIINGO_API_KEY"

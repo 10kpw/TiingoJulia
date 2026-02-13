@@ -2,13 +2,9 @@
 
 A Julia package for downloading and managing financial data from the Tiingo API, with high-performance DuckDB storage and parallel processing capabilities.
 
-<!-- For private repos, use shields.io with authentication -->
 [![Tests](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia/CI.yml?branch=main&label=Tests)](https://github.com/10kpw/TiingoJulia/actions)
 [![Documentation](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia/Docs.yml?branch=main&label=Docs)](https://10kpw.github.io/TiingoJulia/dev)
 [![Lint](https://img.shields.io/github/actions/workflow/status/10kpw/TiingoJulia/Lint.yml?branch=main&label=Lint)](https://github.com/10kpw/TiingoJulia/actions)
-
-<!-- Add note about private repository -->
-> **Note**: This is a private repository. Access to links and badges requires appropriate permissions.
 
 ## Features
 
@@ -28,15 +24,42 @@ Pkg.add("TiingoJulia")
 
 ## Quick Start
 
-### 1. Set up your API key
+### 1. Set up environment variables safely
 
-Create a `.env` file in your project root:
+Create a local `.env` from the template:
+
+```bash
+cp .env.example .env
+```
+
+Set your Tiingo key in `.env`:
 
 ```env
 TIINGO_API_KEY=your_api_key_here
 ```
 
-### 2. Basic Usage
+`.env` is ignored by git. Do not commit secrets.
+
+### 2. Optional configuration overrides
+
+`config.toml` contains non-secret defaults. You can override values per environment with env vars:
+Use `config.example.toml` as a template if you want a custom config file per deployment.
+
+- `TIINGO_CONFIG_PATH`: path to an alternate `config.toml` (legacy `config.json` is still supported)
+- `TIINGO_DB_PATH`: default DuckDB path
+- `TIINGO_API_BASE_URL`: Tiingo daily base URL
+- `TIINGO_TICKERS_URL`: ticker zip URL
+- `TIINGO_API_MAX_RETRIES`: API retry attempts
+- `TIINGO_API_RETRY_DELAY`: API retry base delay (seconds)
+- `TIINGO_LOG_FILE`: log file path
+- `TIINGO_DUCKDB_TMP`: DuckDB temp directory
+- `TIINGO_SUPPORTED_EXCHANGES`: comma-separated exchange list
+- `TIINGO_SUPPORTED_ASSET_TYPES`: comma-separated asset type list
+
+All supported variables are documented in `.env.example`.
+Set overrides before running `using TiingoJulia`.
+
+### 3. Basic Usage
 
 ```julia
 using TiingoJulia
@@ -62,7 +85,7 @@ update_historical(conn, tickers[1:100];  # Process first 100 tickers
                   max_concurrent=10)
 ```
 
-### 3. Advanced Configuration
+### 4. Advanced Configuration
 
 ```julia
 # Custom database path and settings
@@ -85,9 +108,13 @@ update_historical(conn, large_tickers;
 
 If you use TiingoJulia.jl in your work, please cite using the reference given in [CITATION.cff](https://github.com/10kpw/TiingoJulia/blob/main/CITATION.cff).
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
 ## Contributing
 
-If you want to make contributions of any kind, please first that a look into our [contributing guide directly on GitHub](docs/src/90-contributing.md).
+If you want to make contributions of any kind, please first take a look at our [contributing guide directly on GitHub](docs/src/90-contributing.md).
 
 ---
 

@@ -4,9 +4,7 @@ CurrentModule = TiingoJulia
 
 # TiingoJulia.jl
 
-> **Note**: This is a private package. Access to the repository and documentation requires appropriate permissions.
-
-To request access, please contact the repository owners.
+TiingoJulia is an open source Julia package for downloading and managing financial data from the Tiingo API.
 
 ## Contributors
 

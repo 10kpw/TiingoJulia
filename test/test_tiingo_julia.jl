@@ -4,8 +4,12 @@ using DataFrames
 using DBInterface
 
 @testset "TiingoJulia" begin
-    @test isa(get_api_key(), String)
-    @test !isempty(get_api_key())
+    if haskey(ENV, "TIINGO_API_KEY") && !isempty(ENV["TIINGO_API_KEY"])
+        @test isa(get_api_key(), String)
+        @test !isempty(get_api_key())
+    else
+        @test_throws ErrorException get_api_key()
+    end
 
     # Use a temporary database file for testing
     test_db_path = tempname() * ".duckdb"
