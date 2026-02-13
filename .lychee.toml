@@ -1,5 +1,6 @@
 exclude = [
   "@ref",
+  "^https://github.com/.*/compare/.*\\.\\.\\.HEAD$",
   "^https://github.com/.*/releases/tag/v.*$",
   "^https://doi.org/FIXME$",
   "^https://10kpw.github.io/TiingoJulia",
