@@ -648,7 +648,9 @@ module Postgres
 
         selected = DataFrame()
         for (source, target) in mappings
-            selected[!, target] = data[!, source]
+            # JSON null decodes to `nothing`; LibPQ would send that as the
+            # literal text "nothing". Only `missing` becomes SQL NULL.
+            selected[!, target] = replace(data[!, source], nothing => missing)
         end
         return selected
     end

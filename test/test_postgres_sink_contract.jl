@@ -231,6 +231,23 @@ end
     end
 end
 
+@testset "PostgreSQL upsert columns map JSON nothing to SQL NULL" begin
+    # Tiingo `null` decodes to `nothing`, which LibPQ would send as the
+    # literal text "nothing" and PostgreSQL rejects for BIGINT volume.
+    postgres_module = QuansiftMarketData.DB.Postgres
+    mappings = [:volume => :volume, :close => :close]
+    input = DataFrame(volume = [nothing, 10], close = [1.5, nothing])
+
+    mapped = postgres_module.select_upsert_columns(input, mappings)
+
+    @test mapped.volume[1] === missing
+    @test mapped.volume[2] == 10
+    @test mapped.close[2] === missing
+    @test !any(x -> x === nothing, mapped.volume)
+    @test !any(x -> x === nothing, mapped.close)
+    @test all(LibPQ.string_parameters(mapped.volume) .!== "nothing")
+end
+
 @testset "Attached PostgreSQL keeps its environment for the whole scope" begin
     # The libpq environment must cover the ATTACHMENT'S LIFETIME, not just the
     # ATTACH statement. DuckDB's postgres scanner opens further connections
