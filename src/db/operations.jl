@@ -108,6 +108,14 @@ module Operations
             return 0
         end
 
+        # JSON null decodes to `nothing`, and DuckDB has no logical type for
+        # Nothing; only `missing` registers as NULL. An all-null column is
+        # then `Vector{Missing}`, which DuckDB cannot type either, so give it
+        # a concrete element type and let COALESCE and the column cast apply.
+        data = mapcols(data) do column
+            replaced = replace(column, nothing => missing)
+            eltype(replaced) === Missing ? Vector{Union{Missing,Int64}}(replaced) : replaced
+        end
         DuckDB.register_data_frame(conn, data, UPSERT_SOURCE_VIEW)
         try
             upsert_stmt = """
