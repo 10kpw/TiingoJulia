@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.3] - 2026-09-07
+
+### Fixed
+
+- The DuckDB EOD upsert failed on the same JSON `null` that 4.2.2 fixed for
+  PostgreSQL. `execute_upsert_set_based` handed the raw vendor frame to
+  `DuckDB.register_data_frame`, which has no logical type for `Nothing`, so
+  the weekly reconcile's second write failed with
+  `Binder Error: ... create_logical_type(::Type{Nothing})` after the
+  PostgreSQL write had succeeded. `nothing` is now replaced with `missing`
+  before the frame is registered, and an all-null column is given a concrete
+  element type so DuckDB can bind it and the existing `COALESCE` defaults
+  apply (#683).
+
 ## [4.2.2] - 2026-09-07
 
 ### Fixed
@@ -323,7 +337,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parallel update no longer assumes a `ticker` column exists in API-returned DataFrames.
 - `get_api_key` error output no longer leaks environment variable names.
 
-[unreleased]: https://github.com/Quansift/QuansiftMarketData.jl/compare/v4.2.2...HEAD
+[unreleased]: https://github.com/Quansift/QuansiftMarketData.jl/compare/v4.2.3...HEAD
+[4.2.3]: https://github.com/Quansift/QuansiftMarketData.jl/releases/tag/v4.2.3
 [4.2.2]: https://github.com/Quansift/QuansiftMarketData.jl/releases/tag/v4.2.2
 [4.2.1]: https://github.com/Quansift/QuansiftMarketData.jl/releases/tag/v4.2.1
 [4.2.0]: https://github.com/Quansift/QuansiftMarketData.jl/releases/tag/v4.2.0
