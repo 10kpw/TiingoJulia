@@ -634,6 +634,27 @@ end
     @test backoff(1_000, 1) == 60
 end
 
+@testset "DuckDB EOD upsert maps JSON nothing to NULL" begin
+    # Tiingo `null` decodes to `nothing`; DuckDB.register_data_frame has no
+    # logical type for Nothing, so the raw vendor frame must be sanitized.
+    conn = connect_duckdb(":memory:")
+    try
+        frame = _eod_freshness_fixture([Date(2024, 1, 2)]; fetched_at = DateTime(2026, 9, 7))
+        frame[!, :volume] = [nothing]
+        frame[!, :adjVolume] = Union{Nothing,Int64}[nothing]
+
+        @test upsert_stock_data(conn, frame, "FLMI") == 1
+        stored = DBInterface.execute(
+            conn,
+            "SELECT volume, adjVolume FROM historical_data WHERE ticker = 'FLMI'",
+        ) |> DataFrame
+        @test stored.volume == [0]
+        @test stored.adjVolume == [0]
+    finally
+        close_duckdb(conn)
+    end
+end
+
 @testset "DuckDB EOD upsert preserves the freshest observation" begin
     conn = connect_duckdb(":memory:")
     try
