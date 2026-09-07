@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.2] - 2026-09-07
+
+### Fixed
+
+- PostgreSQL upserts sent a JSON `null` as the literal text `"nothing"`.
+  Tiingo returns `volume: null` for some rows (FLMI in the 2026-09-06 weekly
+  reconcile); JSON3 decodes that as `nothing`, `get_ticker_data` returns the
+  raw frame, and LibPQ stringifies `nothing` rather than mapping it to SQL
+  NULL, so the staging insert failed with
+  `invalid input syntax for type bigint: "nothing"`. `select_upsert_columns`,
+  the single path every PostgreSQL upsert takes, now replaces `nothing` with
+  `missing`, so the value reaches the server as NULL and the existing
+  `COALESCE` defaults apply (#681).
+
 ## [4.2.1] - 2026-08-22
 
 ### Fixed
@@ -309,7 +323,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parallel update no longer assumes a `ticker` column exists in API-returned DataFrames.
 - `get_api_key` error output no longer leaks environment variable names.
 
-[unreleased]: https://github.com/Quansift/QuansiftMarketData.jl/compare/v4.2.1...HEAD
+[unreleased]: https://github.com/Quansift/QuansiftMarketData.jl/compare/v4.2.2...HEAD
+[4.2.2]: https://github.com/Quansift/QuansiftMarketData.jl/releases/tag/v4.2.2
 [4.2.1]: https://github.com/Quansift/QuansiftMarketData.jl/releases/tag/v4.2.1
 [4.2.0]: https://github.com/Quansift/QuansiftMarketData.jl/releases/tag/v4.2.0
 [4.1.0]: https://github.com/Quansift/QuansiftMarketData.jl/releases/tag/v4.1.0
